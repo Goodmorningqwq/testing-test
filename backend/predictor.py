@@ -59,7 +59,7 @@ async def generate_prediction(item_id: str, days_history: int = 30, horizon_days
 
     cutoff = now - timedelta(days=days_history)
     query = """
-        SELECT timestamp, sell_price 
+        SELECT timestamp, sell_price, buy_price 
         FROM bazaar_prices 
         WHERE item_id = $1 AND timestamp >= $2
         ORDER BY timestamp ASC
@@ -104,22 +104,32 @@ async def generate_prediction(item_id: str, days_history: int = 30, horizon_days
             
         predicted_end_price = float(future_forecast['yhat'].iloc[-1])
         current_price = float(df['y'].iloc[-1])
+        current_buy_price = float(df['buy_price'].iloc[-1]) if 'buy_price' in df.columns else current_price
         
-        # Raw predicted ROI computation
+        # Raw predicted ROI computation (Lazy Investor)
         raw_predicted_roi = 0.0
         if current_price > 0:
             raw_predicted_roi = (predicted_end_price - current_price) / current_price
             
+        # Raw predicted ROI computation (Flipper)
+        flipper_raw_roi = 0.0
+        if current_buy_price > 0:
+            flipper_raw_roi = (predicted_end_price - current_buy_price) / current_buy_price
+            
         # Apply strict User Calibration Factor
         calibration_factor = await get_calibration_factor()
         calibrated_roi = raw_predicted_roi * calibration_factor
+        flipper_calibrated_roi = flipper_raw_roi * calibration_factor
 
         result = {
             "item_id": item_id,
             "current_price": current_price,
+            "current_buy_order_price": current_buy_price,
             "predicted_end_price": current_price * (1 + calibrated_roi),
             "raw_predicted_roi": raw_predicted_roi,
             "calibrated_roi": calibrated_roi,
+            "flipper_raw_roi": flipper_raw_roi,
+            "flipper_calibrated_roi": flipper_calibrated_roi,
             "calibration_factor_applied": calibration_factor,
             "horizon_days": horizon_days
         }

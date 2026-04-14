@@ -11,6 +11,7 @@ export default function Planner() {
   const [budget, setBudget] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
+  const [investmentMode, setInvestmentMode] = useState("lazy");
 
   const handleOptimize = async () => {
     setLoading(true);
@@ -19,7 +20,7 @@ export default function Planner() {
       const res = await fetch(`${API_BASE_URL}/api/optimize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ budget: parseFloat(budget), horizon_days: 7, candidate_items: [] })
+        body: JSON.stringify({ budget: parseFloat(budget), horizon_days: 7, candidate_items: [], mode: investmentMode })
       });
       const data = await res.json();
       setResult(data);
@@ -55,6 +56,25 @@ export default function Planner() {
               {loading ? "Computing..." : "Run Engine"}
             </Button>
           </div>
+
+          <div className="flex items-center space-x-4 pt-2">
+             <Button 
+                variant="outline" 
+                size="sm"
+                className={`flex-1 h-10 border-zinc-700 transition-colors ${investmentMode === 'lazy' ? 'bg-[#39FF14]/20 text-[#39FF14] border-[#39FF14]/50' : 'bg-transparent text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'}`}
+                onClick={() => setInvestmentMode("lazy")}
+             >
+                🟢 Lazy Investor (Insta-Buy)
+             </Button>
+             <Button 
+                variant="outline" 
+                size="sm"
+                className={`flex-1 h-10 border-zinc-700 transition-colors ${investmentMode === 'flipper' ? 'bg-[#f43f5e]/20 text-[#f43f5e] border-[#f43f5e]/50' : 'bg-transparent text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'}`}
+                onClick={() => setInvestmentMode("flipper")}
+             >
+                🔴 Margin Flipper (Buy Orders)
+             </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -78,7 +98,7 @@ export default function Planner() {
                  <TableRow className="border-zinc-800">
                    <TableHead className="text-zinc-400">Item ID</TableHead>
                    <TableHead className="text-zinc-400 text-right">Quantity</TableHead>
-                   <TableHead className="text-zinc-400 text-right">Unit Price</TableHead>
+                   <TableHead className="text-zinc-400 text-right">{investmentMode === 'lazy' ? 'Insta-Buy Price' : 'Buy Order Target'}</TableHead>
                    <TableHead className="text-zinc-400 text-right">Total Cost</TableHead>
                    <TableHead className="text-[#39FF14] text-right">Expected Profit</TableHead>
                  </TableRow>

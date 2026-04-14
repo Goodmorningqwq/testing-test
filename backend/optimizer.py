@@ -24,7 +24,7 @@ async def get_top_volume_items(limit: int = 15) -> List[str]:
     
     return [row["item_id"] for row in rows]
 
-async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: List[str] = None) -> Dict[str, Any]:
+async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: List[str] = None, mode: str = "lazy") -> Dict[str, Any]:
     if not candidate_items:
         candidate_items = await get_top_volume_items(limit=15)
         
@@ -37,7 +37,8 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
     for item in candidate_items:
         pred = await generate_prediction(item, horizon_days=horizon_days)
         # Only invest in items expected to grow
-        if pred and pred.get("calibrated_roi", 0) > 0 and pred.get("current_price", 0) > 0:
+        roi_key = "flipper_calibrated_roi" if mode == "flipper" else "calibrated_roi"
+        if pred and pred.get(roi_key, 0) > 0 and pred.get("current_price", 0) > 0:
             predictions.append(pred)
 
     if not predictions:
@@ -53,8 +54,9 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
     item_vars = {}
     for p in predictions:
         item = p["item_id"]
-        cost = p["current_price"]
-        profit = cost * p["calibrated_roi"]
+        cost = p.get("current_buy_order_price", p["current_price"]) if mode == "flipper" else p["current_price"]
+        roi = p.get("flipper_calibrated_roi", p["calibrated_roi"]) if mode == "flipper" else p["calibrated_roi"]
+        profit = cost * roi
         
         # Max allocation: 40% of budget per asset to enforce diversification
         max_qty_for_diversification = int((budget * 0.4) / cost)
@@ -76,8 +78,9 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
     for p in predictions:
         item = p["item_id"]
         if item in item_vars:
-            profit = p["current_price"] * p["calibrated_roi"]
-            cost = p["current_price"]
+            cost = p.get("current_buy_order_price", p["current_price"]) if mode == "flipper" else p["current_price"]
+            roi = p.get("flipper_calibrated_roi", p["calibrated_roi"]) if mode == "flipper" else p["calibrated_roi"]
+            profit = cost * roi
             profits_expr.append(item_vars[item] * profit)
             costs_expr.append(item_vars[item] * cost)
             
@@ -107,8 +110,9 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
         if item in item_vars:
             qty = int(item_vars[item].varValue)
             if qty > 0:
-                cost = p["current_price"]
-                profit = cost * p["calibrated_roi"]
+                cost = p.get("current_buy_order_price", p["current_price"]) if mode == "flipper" else p["current_price"]
+                roi = p.get("flipper_calibrated_roi", p["calibrated_roi"]) if mode == "flipper" else p["calibrated_roi"]
+                profit = cost * roi
                 allocations.append({
                     "item_id": item,
                     "quantity": qty,
@@ -116,7 +120,7 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
                     "total_cost": qty * cost,
                     "expected_profit_per_unit": profit,
                     "total_expected_profit": qty * profit,
-                    "roi": p["calibrated_roi"]
+                    "roi": roi
                 })
                 total_spent += (qty * cost)
                 total_expected_profit += (qty * profit)

@@ -15,20 +15,32 @@ export default function Dashboard() {
   const [prediction, setPrediction] = useState<any>(null);
   const [days, setDays] = useState(1);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/items`)
-      .then(res => res.json())
+      .then(async res => {
+        if (!res.ok) throw new Error("Could not fetch items list.");
+        return res.json();
+      })
       .then(data => {
         if(Array.isArray(data)) setItemsList(data);
       })
-      .catch(console.error);
+      .catch(err => {
+        console.error(err);
+        setError("Backend connection lost or API URL misconfigured.");
+      });
   }, []);
 
   useEffect(() => {
     if (selectedItem) {
+      setError(null);
       fetch(`${API_BASE_URL}/api/history/${selectedItem}?days=${days}`)
-        .then(res => res.json())
+        .then(async res => {
+            if (res.status === 404) throw new Error("No historical data found for this item.");
+            if (!res.ok) throw new Error("Failed to load history.");
+            return res.json();
+        })
         .then(data => {
           if(Array.isArray(data)) {
             const formatted = data.map(d => ({
@@ -39,17 +51,29 @@ export default function Dashboard() {
             setHistory(formatted);
           }
         })
-        .catch(console.error);
+        .catch(err => {
+            console.error(err);
+            setHistory([]);
+            setError(err.message === "Failed to fetch" ? "Backend is starting up... please wait." : err.message);
+        });
         
       setPrediction(null);
       fetch(`${API_BASE_URL}/api/predict/${selectedItem}?horizon_days=7`)
-        .then(res => res.json())
+        .then(async res => {
+            if (res.status === 400) throw new Error("Insufficient data points for AI prediction.");
+            if (!res.ok) throw new Error("AI engine error.");
+            return res.json();
+        })
         .then(data => {
             if (!data.detail) {
                setPrediction(data);
             }
         })
-        .catch(console.error);
+        .catch(err => {
+            console.error(err);
+            setPrediction(null);
+            if (!error) setError(err.message);
+        });
     }
   }, [selectedItem, days]);
 
@@ -63,6 +87,12 @@ export default function Dashboard() {
         <h1 className="text-4xl font-vt323 tracking-wide text-[#39FF14]">Bazaar Terminal</h1>
         <p className="text-zinc-400">Search assets and view ML-calibrated predictions.</p>
       </div>
+
+      {error && (
+        <div className="p-4 bg-red-500/10 border border-red-500/50 rounded-lg text-red-500 text-sm font-mono animate-in fade-in slide-in-from-top-2">
+           <span className="font-bold mr-2">⚠️ ERROR:</span> {error}
+        </div>
+      )}
 
       <div className="flex gap-4 relative">
         <div className="relative w-full max-w-sm">
@@ -145,8 +175,8 @@ export default function Dashboard() {
                 </ResponsiveContainer>
              ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center text-zinc-500">
-                    <p className="animate-pulse">Loading historical data...</p>
-                    <p className="text-xs text-zinc-600 mt-2">Waiting for first background poller sync.</p>
+                    <p className="animate-pulse">{error ? "Data Fetching Suspended" : "Loading historical data..."}</p>
+                    <p className="text-xs text-zinc-600 mt-2">{error || "Waiting for first background poller sync."}</p>
                 </div>
              )}
           </CardContent>
@@ -183,10 +213,11 @@ export default function Dashboard() {
               </div>
             ) : (
                <div className="space-y-4">
-                  <p className="text-zinc-400 text-sm animate-pulse">Loading prediction...</p>
+                  <p className="text-zinc-400 text-sm animate-pulse">{error ? "Prediction Failed" : "Loading prediction..."}</p>
                   <div className="h-4 bg-zinc-800 rounded w-3/4 animate-pulse"></div>
                   <div className="h-4 bg-zinc-800 rounded w-1/2 animate-pulse"></div>
                   <div className="h-4 bg-zinc-800 rounded w-5/6 animate-pulse"></div>
+                  {error && <p className="text-xs text-red-400 mt-4">{error}</p>}
                </div>
             )}
           </CardContent>

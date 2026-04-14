@@ -45,7 +45,7 @@ async def get_calibration_factor() -> float:
 
 async def generate_prediction(item_id: str, days_history: int = 30, horizon_days: int = 7) -> dict:
     """Generate and cache a time-series prediction for an item."""
-    cache_key = f"{item_id}_{horizon_days}"
+    cache_key = f"{item_id}_{days_history}_{horizon_days}"
     now = datetime.now(timezone.utc)
     
     # Check cache
@@ -103,7 +103,8 @@ async def generate_prediction(item_id: str, days_history: int = 30, horizon_days
             return {}
             
         # Extract latest values from the series
-        insta_sell_price = float(df['sell_price'].iloc[-1])  # The "Buy Order" price (what you sell into)
+        # Note: sell_price was renamed to 'y' for Prophet above
+        insta_sell_price = float(df['y'].iloc[-1])  # The "Buy Order" price (what you sell into)
         insta_buy_price = float(df['buy_price'].iloc[-1]) if 'buy_price' in df.columns else insta_sell_price # The "Sell Offer" price (what you buy from)
         
         predicted_end_price = float(future_forecast['yhat'].iloc[-1])

@@ -27,11 +27,11 @@ router = APIRouter(prefix="/api")
 @router.get("/items", response_model=List[str])
 async def get_items():
     """Retrieve a list of all distinct tracking items from recent history."""
-    # We restrict to last 1 hour to prevent full table scans and keep query ultra-fast
+    # We restrict to last 24 hours to ensure a stable search list even after downtime
     query = """
         SELECT DISTINCT item_id 
         FROM bazaar_prices 
-        WHERE timestamp >= NOW() - INTERVAL '1 hour'
+        WHERE timestamp >= NOW() - INTERVAL '24 hours'
         ORDER BY item_id;
     """
     
@@ -88,12 +88,16 @@ async def optimize(request: OptimizeRequest):
         raise HTTPException(status_code=400, detail=result["error"])
         
     return result
-
 @router.post("/logs")
 async def add_log(log: LogRequest):
+    """Log an investment outcome for accuracy calibration."""
     if getattr(db, 'pool', None) is None:
         raise HTTPException(status_code=500, detail="Database connection not available")
     
+    # Validation: Prevent outlier poisoning (Sane range: -100% to +1000% ROI)
+    if not (-1.0 <= log.actual_roi <= 10.0):
+        raise HTTPException(status_code=400, detail="Actual ROI is outside of sane calibration range (-1.0 to 10.0).")
+
     query = """
     INSERT INTO user_investment_logs 
     (plan_id, recommended_items, budget, horizon_days, predicted_roi, actual_roi, actual_profit, notes)

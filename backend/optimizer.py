@@ -52,22 +52,27 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
     
     # Decision Variables
     item_vars = {}
+    num_candidates = len(predictions)
+    
     for p in predictions:
         item = p["item_id"]
         cost = p.get("current_buy_order_price", p["current_price"]) if mode == "flipper" else p["current_price"]
-        roi = p.get("flipper_calibrated_roi", p["calibrated_roi"]) if mode == "flipper" else p["calibrated_roi"]
-        profit = cost * roi
         
         # Max allocation: 40% of budget per asset to enforce diversification
-        max_qty_for_diversification = int((budget * 0.4) / cost)
+        # LOGIC: Relax this constraint if we only have a tiny pool of profitable items
+        if num_candidates >= 3:
+            max_qty = int((budget * 0.4) / cost)
+        else:
+            max_qty = int(budget / cost)
+            
         max_qty_absolute = int(budget / cost)
-        
-        # If budget is tiny, allow at least 1 unit if they can afford it
-        upper_bound = max(max_qty_for_diversification, 1) if max_qty_absolute > 0 else 0
-        upper_bound = min(upper_bound, max_qty_absolute)
+        upper_bound = min(max_qty, max_qty_absolute)
         
         if upper_bound > 0:
             item_vars[item] = pulp.LpVariable(f"qty_{item}", lowBound=0, upBound=upper_bound, cat='Integer')
+        elif num_candidates < 3 and max_qty_absolute >= 1:
+            # Fallback: if we have very few items, at least allow buying one if budget permits
+            item_vars[item] = pulp.LpVariable(f"qty_{item}", lowBound=0, upBound=1, cat='Integer')
 
     if not item_vars:
         return {"error": "Budget too low to purchase any profitable items."}

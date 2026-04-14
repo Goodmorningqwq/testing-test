@@ -33,7 +33,8 @@ export default function Dashboard() {
           if(Array.isArray(data)) {
             const formatted = data.map(d => ({
                time: new Date(d.timestamp).toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}),
-               price: d.sell_price
+               buy_price: d.buy_price,
+               sell_price: d.sell_price
             }));
             setHistory(formatted);
           }
@@ -133,9 +134,13 @@ export default function Dashboard() {
                     <Tooltip 
                        contentStyle={{ backgroundColor: '#18181b', borderColor: '#39FF14', color: '#fff', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.5)' }} 
                        labelStyle={{ color: '#a1a1aa', marginBottom: '4px', fontSize: '12px' }}
-                       formatter={(value: any) => [`${parseFloat(value).toLocaleString(undefined, {maximumFractionDigits:1})} coins`, "Price"]}
+                       formatter={(value: any, name: string) => {
+                          const label = name === 'buy_price' ? 'Insta-Sell (Buy Order)' : 'Insta-Buy (Sell Order)';
+                          return [`${parseFloat(value).toLocaleString(undefined, {maximumFractionDigits:1})} coins`, label];
+                       }}
                     />
-                    <Line type="monotone" dataKey="price" stroke="#39FF14" strokeWidth={2} dot={false} activeDot={{ r: 6, fill: '#39FF14', stroke: '#18181b', strokeWidth: 2 }} animationDuration={1000} />
+                    <Line name="buy_price" type="monotone" dataKey="buy_price" stroke="#f43f5e" strokeWidth={2} dot={false} activeDot={{ r: 6, fill: '#f43f5e', stroke: '#18181b', strokeWidth: 2 }} animationDuration={1000} />
+                    <Line name="sell_price" type="monotone" dataKey="sell_price" stroke="#39FF14" strokeWidth={2} dot={false} activeDot={{ r: 6, fill: '#39FF14', stroke: '#18181b', strokeWidth: 2 }} animationDuration={1000} />
                 </LineChart>
                 </ResponsiveContainer>
              ) : (

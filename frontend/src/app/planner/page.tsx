@@ -23,7 +23,11 @@ export default function Planner() {
         body: JSON.stringify({ budget: parseFloat(budget), horizon_days: 7, candidate_items: [], mode: investmentMode })
       });
       const data = await res.json();
-      setResult(data);
+      if (!res.ok) {
+         setResult({ error: data.detail || "Optimization failed." });
+      } else {
+         setResult(data);
+      }
     } catch (err) {
       console.error(err);
       setResult({ error: "Failed to connect to optimization engine." });

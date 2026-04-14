@@ -54,7 +54,7 @@ export default function Dashboard() {
         .catch(err => {
             console.error(err);
             setHistory([]);
-            setError(err.message === "Failed to fetch" ? "Backend is starting up... please wait." : err.message);
+            setError(prev => prev || (err.message === "Failed to fetch" ? "Backend is starting up... please wait." : err.message));
         });
         
       setPrediction(null);
@@ -72,10 +72,12 @@ export default function Dashboard() {
         .catch(err => {
             console.error(err);
             setPrediction(null);
-            if (!error) setError(err.message);
+            setError(prev => prev || err.message);
         });
     }
   }, [selectedItem, days]);
+
+  const isProductionAndNoApi = process.env.NODE_ENV === 'production' && (!process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_URL.includes('localhost'));
 
   const filteredItems = itemsList
     .filter(i => i.toLowerCase().includes(search.toLowerCase()))
@@ -87,6 +89,12 @@ export default function Dashboard() {
         <h1 className="text-4xl font-vt323 tracking-wide text-[#39FF14]">Bazaar Terminal</h1>
         <p className="text-zinc-400">Search assets and view ML-calibrated predictions.</p>
       </div>
+
+      {isProductionAndNoApi && (
+        <div className="p-4 bg-orange-500/10 border border-orange-500/50 rounded-lg text-orange-400 text-sm font-mono">
+           <span className="font-bold mr-2">⚠️ CONFIG WARNING:</span> This production build is currently pointing to 'localhost' or has no NEXT_PUBLIC_API_URL set. The dashboard will likely fail for external users.
+        </div>
+      )}
 
       {error && (
         <div className="p-4 bg-red-500/10 border border-red-500/50 rounded-lg text-red-500 text-sm font-mono animate-in fade-in slide-in-from-top-2">

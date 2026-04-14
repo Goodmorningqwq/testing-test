@@ -12,10 +12,12 @@ export default function Planner() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [investmentMode, setInvestmentMode] = useState("lazy");
+  const [error, setError] = useState<string | null>(null);
 
   const handleOptimize = async () => {
     setLoading(true);
     setResult(null);
+    setError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/api/optimize`, {
         method: "POST",
@@ -24,13 +26,13 @@ export default function Planner() {
       });
       const data = await res.json();
       if (!res.ok) {
-         setResult({ error: data.detail || "Optimization failed." });
+         setError(data.detail || "Optimization engine rejected the request.");
       } else {
          setResult(data);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setResult({ error: "Failed to connect to optimization engine." });
+      setError(err.message === "Failed to fetch" ? "Backend connection lost or waking up..." : "Failed to connect to optimization engine.");
     }
     setLoading(false);
   };
@@ -41,6 +43,12 @@ export default function Planner() {
         <h1 className="text-4xl font-vt323 tracking-wide text-[#39FF14]">Portfolio Optimizer</h1>
         <p className="text-zinc-400">Run the PuLP Linear Programming engine to find the exact optimal purchase allocations.</p>
       </div>
+
+      {error && (
+        <div className="p-4 bg-red-500/10 border border-red-500/50 rounded-lg text-red-500 text-sm font-mono animate-in fade-in slide-in-from-top-2">
+           <span className="font-bold mr-2">⚠️ ERROR:</span> {error}
+        </div>
+      )}
 
       <Card className="bg-zinc-900 border-zinc-800 max-w-xl">
         <CardHeader>

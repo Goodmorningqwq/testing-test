@@ -95,8 +95,8 @@ async def add_log(log: LogRequest):
         raise HTTPException(status_code=500, detail="Database connection not available")
     
     # Validation: Prevent outlier poisoning (Sane range: -100% to +1000% ROI)
-    if not (-1.0 <= log.actual_roi <= 10.0):
-        raise HTTPException(status_code=400, detail="Actual ROI is outside of sane calibration range (-1.0 to 10.0).")
+    if not (-1.0 <= log.actual_roi <= 10.0) or not (-1.0 <= log.predicted_roi <= 10.0):
+        raise HTTPException(status_code=400, detail="ROI value (predicted or actual) is outside of sane calibration range (-1.0 to 10.0).")
 
     query = """
     INSERT INTO user_investment_logs 

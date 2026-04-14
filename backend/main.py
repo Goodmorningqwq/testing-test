@@ -76,7 +76,11 @@ app.include_router(api_router)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production limit to Vercel string
+    allow_origins=[
+        "https://bazzar-two.vercel.app", 
+        "http://localhost:3000",
+        "http://localhost:8000"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

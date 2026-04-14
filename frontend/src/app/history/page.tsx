@@ -72,11 +72,11 @@ export default function HistoryPage() {
            <p className="text-zinc-400">Past optimizations and actual recorded outcomes to auto-calibrate future ML predictions.</p>
          </div>
          <Dialog open={open} onOpenChange={setOpen}>
-           <DialogTrigger asChild>
+           <DialogTrigger render={
              <Button className="bg-[#39FF14] text-black hover:bg-[#32e012] mb-1 font-vt323 text-lg tracking-wide">
                + Log Outcome
              </Button>
-           </DialogTrigger>
+           } />
            <DialogContent className="bg-zinc-950 border-zinc-800 text-zinc-100 sm:max-w-[425px]">
              <DialogHeader>
                <DialogTitle className="font-vt323 text-2xl text-[#39FF14]">Log Investment Outcome</DialogTitle>

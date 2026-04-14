@@ -134,7 +134,7 @@ export default function Dashboard() {
                     <Tooltip 
                        contentStyle={{ backgroundColor: '#18181b', borderColor: '#39FF14', color: '#fff', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.5)' }} 
                        labelStyle={{ color: '#a1a1aa', marginBottom: '4px', fontSize: '12px' }}
-                       formatter={(value: any, name: string) => {
+                       formatter={(value: any, name: string | undefined) => {
                           const label = name === 'buy_price' ? 'Insta-Sell (Buy Order)' : 'Insta-Buy (Sell Order)';
                           return [`${parseFloat(value).toLocaleString(undefined, {maximumFractionDigits:1})} coins`, label];
                        }}

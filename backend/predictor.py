@@ -102,19 +102,23 @@ async def generate_prediction(item_id: str, days_history: int = 30, horizon_days
         if future_forecast.empty:
             return {}
             
-        predicted_end_price = float(future_forecast['yhat'].iloc[-1])
-        current_price = float(df['y'].iloc[-1])
-        current_buy_price = float(df['buy_price'].iloc[-1]) if 'buy_price' in df.columns else current_price
+        # Extract latest values from the series
+        insta_sell_price = float(df['sell_price'].iloc[-1])  # The "Buy Order" price (what you sell into)
+        insta_buy_price = float(df['buy_price'].iloc[-1]) if 'buy_price' in df.columns else insta_sell_price # The "Sell Offer" price (what you buy from)
         
-        # Raw predicted ROI computation (Lazy Investor)
+        predicted_end_price = float(future_forecast['yhat'].iloc[-1])
+        
+        # Raw predicted ROI computation (Lazy Investor - Insta-Buy now)
+        # Entry cost is the HIGHER price (insta_buy_price)
         raw_predicted_roi = 0.0
-        if current_price > 0:
-            raw_predicted_roi = (predicted_end_price - current_price) / current_price
+        if insta_buy_price > 0:
+            raw_predicted_roi = (predicted_end_price - insta_buy_price) / insta_buy_price
             
-        # Raw predicted ROI computation (Flipper)
+        # Raw predicted ROI computation (Flipper - Buy Order now)
+        # Entry cost is the LOWER price (insta_sell_price)
         flipper_raw_roi = 0.0
-        if current_buy_price > 0:
-            flipper_raw_roi = (predicted_end_price - current_buy_price) / current_buy_price
+        if insta_sell_price > 0:
+            flipper_raw_roi = (predicted_end_price - insta_sell_price) / insta_sell_price
             
         # Apply strict User Calibration Factor
         calibration_factor = await get_calibration_factor()
@@ -123,9 +127,9 @@ async def generate_prediction(item_id: str, days_history: int = 30, horizon_days
 
         result = {
             "item_id": item_id,
-            "current_price": current_price,
-            "current_buy_order_price": current_buy_price,
-            "predicted_end_price": current_price * (1 + calibrated_roi),
+            "current_price": insta_buy_price,        # For "Lazy" mode, this is the cost
+            "current_buy_order_price": insta_sell_price, # For "Flipper" mode, this is the cost
+            "predicted_end_price": predicted_end_price, 
             "raw_predicted_roi": raw_predicted_roi,
             "calibrated_roi": calibrated_roi,
             "flipper_raw_roi": flipper_raw_roi,

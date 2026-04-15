@@ -24,37 +24,51 @@ async def get_top_volume_items(limit: int = 15) -> List[str]:
     
     return [row["item_id"] for row in rows]
 
-async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: List[str] = None, mode: str = "lazy") -> Dict[str, Any]:
+async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: List[str] = None, mode: str = "lazy", tax_rate: float = 0.0125) -> Dict[str, Any]:
     if not candidate_items:
         candidate_items = await get_top_volume_items(limit=15)
         
     if not candidate_items:
         return {"error": "No items available to optimize."}
 
-    logger.info(f"Optimizing budget {budget} over {len(candidate_items)} items for {horizon_days} days.")
+    logger.info(f"Optimizing budget {budget} over {len(candidate_items)} items for {horizon_days} days at {tax_rate*100}% tax.")
     
-    predictions = []
+    net_predictions = []
     for item in candidate_items:
         pred = await generate_prediction(item, horizon_days=horizon_days)
-        # Only invest in items expected to grow
-        roi_key = "flipper_calibrated_roi" if mode == "flipper" else "calibrated_roi"
-        if pred and pred.get(roi_key, 0) > 0 and pred.get("current_price", 0) > 0:
-            predictions.append(pred)
+        if pred and pred.get("current_price", 0) > 0:
+            # Entry cost depends on mode
+            cost = pred.get("current_buy_order_price", pred["current_price"]) if mode == "flipper" else pred["current_price"]
+            
+            # Predict the NET exit value after tax
+            # Note: We apply calibration factor to the raw expected GAIN (or loss)
+            raw_target_price = pred["predicted_end_price"]
+            price_delta = raw_target_price - cost
+            calibrated_exit_price = cost + (price_delta * pred.get("calibration_factor_applied", 1.0))
+            
+            # Final Net ROI calculation after tax
+            # Tax is applied to the final sale price
+            net_profit_per_unit = (calibrated_exit_price * (1 - tax_rate)) - cost
+            net_roi = net_profit_per_unit / cost
+            
+            if net_roi > 0:
+                # Inject net metrics for the solver to use
+                pred["net_roi"] = net_roi
+                pred["net_profit_per_unit"] = net_profit_per_unit
+                net_predictions.append(pred)
 
-    if not predictions:
-        return {"error": "No profitable items found to invest in based on current predictions."}
+    if not net_predictions:
+        return {"error": f"No items found that are profitable after {tax_rate*100}% Bazaar tax."}
 
     # Integer Linear Programming using PuLP
-    # Maximize SUM(x_i * profit_i)
-    # Subject to SUM(x_i * cost_i) <= budget
-    
+    # Maximize SUM(x_i * net_profit_i)
     prob = pulp.LpProblem("SkyBlock_Portfolio_Optimization", pulp.LpMaximize)
     
     # Decision Variables
     item_vars = {}
-    num_candidates = len(predictions)
+    num_candidates = len(net_predictions)
     
-    for p in predictions:
+    for p in net_predictions:
         item = p["item_id"]
         cost = p.get("current_buy_order_price", p["current_price"]) if mode == "flipper" else p["current_price"]
         
@@ -78,22 +92,21 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
             item_vars[item] = pulp.LpVariable(f"qty_{item}", lowBound=0, upBound=1, cat='Integer')
 
     if not item_vars:
-        return {"error": "Budget too low to purchase any profitable items."}
+        return {"error": "Budget too low or liquidity too thin to purchase profitable items."}
 
     profits_expr = []
     costs_expr = []
     
-    for p in predictions:
+    for p in net_predictions:
         item = p["item_id"]
         if item in item_vars:
             cost = p.get("current_buy_order_price", p["current_price"]) if mode == "flipper" else p["current_price"]
-            roi = p.get("flipper_calibrated_roi", p["calibrated_roi"]) if mode == "flipper" else p["calibrated_roi"]
-            profit = cost * roi
-            profits_expr.append(item_vars[item] * profit)
+            net_profit = p["net_profit_per_unit"]
+            profits_expr.append(item_vars[item] * net_profit)
             costs_expr.append(item_vars[item] * cost)
             
-    # Objective
-    prob += pulp.lpSum(profits_expr), "Total_Expected_Profit"
+    # Objective: Maximize Total Net Profit
+    prob += pulp.lpSum(profits_expr), "Total_Expected_Net_Profit"
     
     # Constraint
     prob += pulp.lpSum(costs_expr) <= budget, "Total_Cost"
@@ -111,17 +124,16 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
     # Extract allocations
     allocations = []
     total_spent = 0
-    total_expected_profit = 0
+    total_expected_net_profit = 0
     
-    for p in predictions:
+    for p in net_predictions:
         item = p["item_id"]
         if item in item_vars:
             qty = int(item_vars[item].varValue)
             if qty > 0:
                 cost = p.get("current_buy_order_price", p["current_price"]) if mode == "flipper" else p["current_price"]
-                roi = p.get("flipper_calibrated_roi", p["calibrated_roi"]) if mode == "flipper" else p["calibrated_roi"]
                 market_depth = p["current_buy_volume"] if mode == "flipper" else p["current_sell_volume"]
-                profit = cost * roi
+                net_profit = p["net_profit_per_unit"]
                 allocations.append({
                     "item_id": item,
                     "quantity": qty,
@@ -129,21 +141,23 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
                     "total_cost": qty * cost,
                     "market_volume": market_depth,
                     "volume_cap_applied": int(market_depth * 0.10),
-                    "expected_profit_per_unit": profit,
-                    "total_expected_profit": qty * profit,
-                    "roi": roi
+                    "expected_profit_per_unit": net_profit,
+                    "total_expected_profit": qty * net_profit,
+                    "roi": p["net_roi"],
+                    "tax_applied": tax_rate
                 })
                 total_spent += (qty * cost)
-                total_expected_profit += (qty * profit)
+                total_expected_net_profit += (qty * net_profit)
                 
     allocations.sort(key=lambda x: x["total_expected_profit"], reverse=True)
     
     return {
         "status": "optimal",
         "budget_provided": budget,
+        "tax_rate": tax_rate,
         "total_spent": total_spent,
         "remaining_budget": budget - total_spent,
-        "total_expected_profit": total_expected_profit,
-        "expected_portfolio_roi": (total_expected_profit / total_spent) if total_spent > 0 else 0,
+        "total_expected_profit": total_expected_net_profit,
+        "expected_portfolio_roi": (total_expected_net_profit / total_spent) if total_spent > 0 else 0,
         "allocations": allocations
     }

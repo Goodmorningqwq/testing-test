@@ -11,6 +11,7 @@ class OptimizeRequest(BaseModel):
     horizon_days: int = 7
     candidate_items: List[str] = []
     mode: str = "lazy"
+    tax_rate: float = 0.0125
 
 class LogRequest(BaseModel):
     plan_id: str
@@ -82,7 +83,7 @@ async def optimize(request: OptimizeRequest):
     if request.budget <= 0:
         raise HTTPException(status_code=400, detail="Budget must be greater than zero.")
         
-    result = await optimize_portfolio(request.budget, request.horizon_days, request.candidate_items, request.mode)
+    result = await optimize_portfolio(request.budget, request.horizon_days, request.candidate_items, request.mode, request.tax_rate)
     
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])

@@ -12,6 +12,7 @@ export default function Planner() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [investmentMode, setInvestmentMode] = useState("lazy");
+  const [taxRate, setTaxRate] = useState(0.0125);
   const [error, setError] = useState<string | null>(null);
 
   const handleOptimize = async () => {
@@ -22,7 +23,13 @@ export default function Planner() {
       const res = await fetch(`${API_BASE_URL}/api/optimize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ budget: parseFloat(budget), horizon_days: 7, candidate_items: [], mode: investmentMode })
+        body: JSON.stringify({ 
+          budget: parseFloat(budget), 
+          horizon_days: 7, 
+          candidate_items: [], 
+          mode: investmentMode,
+          tax_rate: taxRate 
+        })
       });
       const data = await res.json();
       if (!res.ok) {
@@ -55,7 +62,7 @@ export default function Planner() {
           <CardTitle className="text-zinc-100 font-vt323">Investment Configuration</CardTitle>
           <CardDescription className="text-zinc-400">Enter your available SkyBlock coins budget.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-6">
           <div className="flex gap-4">
             <Input 
               type="number"
@@ -69,23 +76,47 @@ export default function Planner() {
             </Button>
           </div>
 
-          <div className="flex items-center space-x-4 pt-2">
-             <Button 
-                variant="outline" 
-                size="sm"
-                className={`flex-1 h-10 border-zinc-700 transition-colors ${investmentMode === 'lazy' ? 'bg-[#39FF14]/20 text-[#39FF14] border-[#39FF14]/50' : 'bg-transparent text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'}`}
-                onClick={() => setInvestmentMode("lazy")}
-             >
-                🟢 Lazy Investor (Insta-Buy)
-             </Button>
-             <Button 
-                variant="outline" 
-                size="sm"
-                className={`flex-1 h-10 border-zinc-700 transition-colors ${investmentMode === 'flipper' ? 'bg-[#f43f5e]/20 text-[#f43f5e] border-[#f43f5e]/50' : 'bg-transparent text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'}`}
-                onClick={() => setInvestmentMode("flipper")}
-             >
-                🔴 Margin Flipper (Buy Orders)
-             </Button>
+          <div className="space-y-3">
+             <label className="text-xs text-zinc-500 font-mono uppercase tracking-wider">Investment Strategy</label>
+             <div className="flex items-center space-x-4">
+                <Button 
+                   variant="outline" 
+                   size="sm"
+                   className={`flex-1 h-10 border-zinc-700 transition-all ${investmentMode === 'lazy' ? 'bg-[#39FF14]/20 text-[#39FF14] border-[#39FF14]/50 scale-[1.02]' : 'bg-transparent text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'}`}
+                   onClick={() => setInvestmentMode("lazy")}
+                >
+                   🟢 Lazy Investor (Insta-Buy)
+                </Button>
+                <Button 
+                   variant="outline" 
+                   size="sm"
+                   className={`flex-1 h-10 border-zinc-700 transition-all ${investmentMode === 'flipper' ? 'bg-[#f43f5e]/20 text-[#f43f5e] border-[#f43f5e]/50 scale-[1.02]' : 'bg-transparent text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'}`}
+                   onClick={() => setInvestmentMode("flipper")}
+                >
+                   🔴 Margin Flipper (Buy Orders)
+                </Button>
+             </div>
+          </div>
+
+          <div className="space-y-3 border-t border-zinc-800 pt-4">
+             <label className="text-xs text-zinc-500 font-mono uppercase tracking-wider">Bazaar Tax Rate</label>
+             <div className="flex items-center space-x-2">
+                {[
+                  { label: "Standard (1.25%)", val: 0.0125 },
+                  { label: "Upgraded (1.0%)", val: 0.01 },
+                  { label: "Derpy (5.0%)", val: 0.05 }
+                ].map(({ label, val }) => (
+                   <Button 
+                      key={val}
+                      variant="outline" 
+                      size="sm"
+                      className={`flex-1 h-8 text-[10px] uppercase border-zinc-700 transition-all ${taxRate === val ? 'bg-zinc-100 text-black border-zinc-100' : 'bg-transparent text-zinc-500 hover:bg-zinc-800'}`}
+                      onClick={() => setTaxRate(val)}
+                   >
+                      {label}
+                   </Button>
+                ))}
+             </div>
           </div>
         </CardContent>
       </Card>
@@ -96,7 +127,7 @@ export default function Planner() {
              <div className="flex justify-between items-start">
                  <div>
                     <CardTitle className="text-zinc-100 font-vt323 text-2xl">Optimal Allocation Plan</CardTitle>
-                    <p className="text-zinc-400 text-sm mt-1">Expected ROI: <span className="text-[#39FF14] font-bold">{(result.expected_portfolio_roi * 100).toFixed(2)}%</span></p>
+                    <p className="text-zinc-400 text-sm mt-1">Expected Net ROI: <span className="text-[#39FF14] font-bold">{(result.expected_portfolio_roi * 100).toFixed(2)}%</span></p>
                  </div>
                  <div className="text-right font-vt323">
                     <p className="text-zinc-400 text-sm">Allocated / Budget</p>
@@ -105,9 +136,10 @@ export default function Planner() {
              </div>
              <div className="mt-4 p-3 bg-[#39FF14]/10 border border-[#39FF14]/30 rounded-lg flex items-center gap-3">
                 <span className="text-xl">ℹ️</span>
-                <p className="text-xs text-zinc-300 leading-relaxed">
-                   <span className="text-[#39FF14] font-bold">Liquidity Guard Enabled:</span> Quantities are automatically capped at 10% of current market depth to ensure your orders can actually be filled and avoid price slippage.
-                </p>
+                <div className="text-xs text-zinc-300 leading-relaxed">
+                   <p><span className="text-[#39FF14] font-bold">Tax-Aware Strategy Enabled:</span> Profits are calculated <span className="underline">NET</span> of the {result.tax_rate * 100}% Bazaar tax.</p>
+                   <p className="mt-1 opacity-70 italic">Diversification & Liquidity Guard (10%) are also active.</p>
+                </div>
              </div>
           </CardHeader>
           <CardContent>
@@ -116,10 +148,10 @@ export default function Planner() {
                   <TableRow className="border-zinc-800">
                     <TableHead className="text-zinc-400">Item ID</TableHead>
                     <TableHead className="text-zinc-400 text-right">Quantity</TableHead>
-                    <TableHead className="text-zinc-400 text-right">Market Cap (10%)/Depth</TableHead>
+                    <TableHead className="text-zinc-400 text-right">Market Cap (10%)</TableHead>
                     <TableHead className="text-zinc-400 text-right">{investmentMode === 'lazy' ? 'Insta-Buy Price' : 'Buy Order Target'}</TableHead>
                     <TableHead className="text-zinc-400 text-right">Total Cost</TableHead>
-                    <TableHead className="text-[#39FF14] text-right">Expected Profit</TableHead>
+                    <TableHead className="text-[#39FF14] text-right">Net Expected Profit</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -128,11 +160,11 @@ export default function Planner() {
                       <TableCell className="font-medium text-zinc-100">{alloc.item_id}</TableCell>
                       <TableCell className="text-right text-zinc-300">{alloc.quantity.toLocaleString()}</TableCell>
                       <TableCell className="text-right text-zinc-500 text-xs italic">
-                         {alloc.volume_cap_applied.toLocaleString()} / {alloc.market_volume.toLocaleString()} units
+                         {alloc.volume_cap_applied.toLocaleString()} units
                       </TableCell>
                       <TableCell className="text-right text-zinc-300">{alloc.unit_price.toLocaleString(undefined, {maximumFractionDigits:1})}</TableCell>
                       <TableCell className="text-right text-zinc-300">{alloc.total_cost.toLocaleString(undefined, {maximumFractionDigits:1})}</TableCell>
-                      <TableCell className="text-right text-[#39FF14] drop-shadow-[0_0_8px_rgba(57,255,20,0.5)]">+{alloc.total_expected_profit.toLocaleString(undefined, {maximumFractionDigits:1})}</TableCell>
+                      <TableCell className="text-right text-[#39FF14] font-bold drop-shadow-[0_0_8px_rgba(57,255,20,0.5)]">+{alloc.total_expected_profit.toLocaleString(undefined, {maximumFractionDigits:1})}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

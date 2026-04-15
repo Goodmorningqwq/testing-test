@@ -59,19 +59,22 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
         cost = p.get("current_buy_order_price", p["current_price"]) if mode == "flipper" else p["current_price"]
         
         # Max allocation: 40% of budget per asset to enforce diversification
-        # LOGIC: Relax this constraint if we only have a tiny pool of profitable items
+        # VOLUME CONSTRAINT: 10% of the recorded market depth to prevent unrealistic orders
+        market_depth = p["current_buy_volume"] if mode == "flipper" else p["current_sell_volume"]
+        volume_cap = int(market_depth * 0.10)
+        
         if num_candidates >= 3:
             max_qty = int((budget * 0.4) / cost)
         else:
             max_qty = int(budget / cost)
             
         max_qty_absolute = int(budget / cost)
-        upper_bound = min(max_qty, max_qty_absolute)
+        upper_bound = min(max_qty, max_qty_absolute, volume_cap if volume_cap > 0 else max_qty_absolute)
         
         if upper_bound > 0:
             item_vars[item] = pulp.LpVariable(f"qty_{item}", lowBound=0, upBound=upper_bound, cat='Integer')
-        elif num_candidates < 3 and max_qty_absolute >= 1:
-            # Fallback: if we have very few items, at least allow buying one if budget permits
+        elif num_candidates < 3 and max_qty_absolute >= 1 and volume_cap >= 1:
+            # Fallback: if we have very few items, at least allow buying one if budget and volume permits
             item_vars[item] = pulp.LpVariable(f"qty_{item}", lowBound=0, upBound=1, cat='Integer')
 
     if not item_vars:
@@ -117,12 +120,15 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
             if qty > 0:
                 cost = p.get("current_buy_order_price", p["current_price"]) if mode == "flipper" else p["current_price"]
                 roi = p.get("flipper_calibrated_roi", p["calibrated_roi"]) if mode == "flipper" else p["calibrated_roi"]
+                market_depth = p["current_buy_volume"] if mode == "flipper" else p["current_sell_volume"]
                 profit = cost * roi
                 allocations.append({
                     "item_id": item,
                     "quantity": qty,
                     "unit_price": cost,
                     "total_cost": qty * cost,
+                    "market_volume": market_depth,
+                    "volume_cap_applied": int(market_depth * 0.10),
                     "expected_profit_per_unit": profit,
                     "total_expected_profit": qty * profit,
                     "roi": roi

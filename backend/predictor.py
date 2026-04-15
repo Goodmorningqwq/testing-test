@@ -59,7 +59,7 @@ async def generate_prediction(item_id: str, days_history: int = 30, horizon_days
 
     cutoff = now - timedelta(days=days_history)
     query = """
-        SELECT timestamp, sell_price, buy_price 
+        SELECT timestamp, sell_price, sell_volume, buy_price, buy_volume 
         FROM bazaar_prices 
         WHERE item_id = $1 AND timestamp >= $2
         ORDER BY timestamp ASC
@@ -80,6 +80,7 @@ async def generate_prediction(item_id: str, days_history: int = 30, horizon_days
     df['ds'] = pd.to_datetime(df['ds']).dt.tz_localize(None) # Prophet prefers tz-naive
 
     # Downsample to save RAM (1-hour intervals)
+    # Note: For volume, we take the max to see daily/hourly peaks or mean for average depth
     df = df.set_index('ds').resample('1h').mean().dropna().reset_index()
 
     # Fit Model
@@ -107,6 +108,10 @@ async def generate_prediction(item_id: str, days_history: int = 30, horizon_days
         insta_sell_price = float(df['y'].iloc[-1])  # The "Buy Order" price (what you sell into)
         insta_buy_price = float(df['buy_price'].iloc[-1]) if 'buy_price' in df.columns else insta_sell_price # The "Sell Offer" price (what you buy from)
         
+        # Capture current liquidity
+        current_sell_volume = float(df['sell_volume'].iloc[-1]) if 'sell_volume' in df.columns else 0
+        current_buy_volume = float(df['buy_volume'].iloc[-1]) if 'buy_volume' in df.columns else 0
+
         predicted_end_price = float(future_forecast['yhat'].iloc[-1])
         
         # Raw predicted ROI computation (Lazy Investor - Insta-Buy now)
@@ -130,6 +135,8 @@ async def generate_prediction(item_id: str, days_history: int = 30, horizon_days
             "item_id": item_id,
             "current_price": insta_buy_price,        # For "Lazy" mode, this is the cost
             "current_buy_order_price": insta_sell_price, # For "Flipper" mode, this is the cost
+            "current_sell_volume": current_sell_volume,
+            "current_buy_volume": current_buy_volume,
             "predicted_end_price": predicted_end_price, 
             "raw_predicted_roi": raw_predicted_roi,
             "calibrated_roi": calibrated_roi,

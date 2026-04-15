@@ -103,29 +103,39 @@ export default function Planner() {
                     <p className="text-[#39FF14] text-xl">{result.total_spent.toLocaleString()} / {result.budget_provided.toLocaleString()}</p>
                  </div>
              </div>
+             <div className="mt-4 p-3 bg-[#39FF14]/10 border border-[#39FF14]/30 rounded-lg flex items-center gap-3">
+                <span className="text-xl">ℹ️</span>
+                <p className="text-xs text-zinc-300 leading-relaxed">
+                   <span className="text-[#39FF14] font-bold">Liquidity Guard Enabled:</span> Quantities are automatically capped at 10% of current market depth to ensure your orders can actually be filled and avoid price slippage.
+                </p>
+             </div>
           </CardHeader>
           <CardContent>
              <Table>
-               <TableHeader>
-                 <TableRow className="border-zinc-800">
-                   <TableHead className="text-zinc-400">Item ID</TableHead>
-                   <TableHead className="text-zinc-400 text-right">Quantity</TableHead>
-                   <TableHead className="text-zinc-400 text-right">{investmentMode === 'lazy' ? 'Insta-Buy Price' : 'Buy Order Target'}</TableHead>
-                   <TableHead className="text-zinc-400 text-right">Total Cost</TableHead>
-                   <TableHead className="text-[#39FF14] text-right">Expected Profit</TableHead>
-                 </TableRow>
-               </TableHeader>
-               <TableBody>
-                 {result.allocations.map((alloc: any) => (
-                   <TableRow key={alloc.item_id} className="border-zinc-800/50 hover:bg-zinc-800/50 transition-colors">
-                     <TableCell className="font-medium text-zinc-100">{alloc.item_id}</TableCell>
-                     <TableCell className="text-right text-zinc-300">{alloc.quantity.toLocaleString()}</TableCell>
-                     <TableCell className="text-right text-zinc-300">{alloc.unit_price.toLocaleString(undefined, {maximumFractionDigits:1})}</TableCell>
-                     <TableCell className="text-right text-zinc-300">{alloc.total_cost.toLocaleString(undefined, {maximumFractionDigits:1})}</TableCell>
-                     <TableCell className="text-right text-[#39FF14] drop-shadow-[0_0_8px_rgba(57,255,20,0.5)]">+{alloc.total_expected_profit.toLocaleString(undefined, {maximumFractionDigits:1})}</TableCell>
-                   </TableRow>
-                 ))}
-               </TableBody>
+                <TableHeader>
+                  <TableRow className="border-zinc-800">
+                    <TableHead className="text-zinc-400">Item ID</TableHead>
+                    <TableHead className="text-zinc-400 text-right">Quantity</TableHead>
+                    <TableHead className="text-zinc-400 text-right">Market Cap (10%)/Depth</TableHead>
+                    <TableHead className="text-zinc-400 text-right">{investmentMode === 'lazy' ? 'Insta-Buy Price' : 'Buy Order Target'}</TableHead>
+                    <TableHead className="text-zinc-400 text-right">Total Cost</TableHead>
+                    <TableHead className="text-[#39FF14] text-right">Expected Profit</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {result.allocations.map((alloc: any) => (
+                    <TableRow key={alloc.item_id} className="border-zinc-800/50 hover:bg-zinc-800/50 transition-colors">
+                      <TableCell className="font-medium text-zinc-100">{alloc.item_id}</TableCell>
+                      <TableCell className="text-right text-zinc-300">{alloc.quantity.toLocaleString()}</TableCell>
+                      <TableCell className="text-right text-zinc-500 text-xs italic">
+                         {alloc.volume_cap_applied.toLocaleString()} / {alloc.market_volume.toLocaleString()} units
+                      </TableCell>
+                      <TableCell className="text-right text-zinc-300">{alloc.unit_price.toLocaleString(undefined, {maximumFractionDigits:1})}</TableCell>
+                      <TableCell className="text-right text-zinc-300">{alloc.total_cost.toLocaleString(undefined, {maximumFractionDigits:1})}</TableCell>
+                      <TableCell className="text-right text-[#39FF14] drop-shadow-[0_0_8px_rgba(57,255,20,0.5)]">+{alloc.total_expected_profit.toLocaleString(undefined, {maximumFractionDigits:1})}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
              </Table>
           </CardContent>
         </Card>

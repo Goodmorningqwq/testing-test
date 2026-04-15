@@ -40,6 +40,9 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
             # Entry cost depends on mode
             cost = pred.get("current_buy_order_price", pred["current_price"]) if mode == "flipper" else pred["current_price"]
             
+            if cost <= 0:
+                continue
+
             # Predict the NET exit value after tax
             # Note: We apply calibration factor to the raw expected GAIN (or loss)
             raw_target_price = pred["predicted_end_price"]

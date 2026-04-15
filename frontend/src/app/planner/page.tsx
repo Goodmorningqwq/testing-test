@@ -16,6 +16,12 @@ export default function Planner() {
   const [error, setError] = useState<string | null>(null);
 
   const handleOptimize = async () => {
+    const parsedBudget = parseFloat(budget);
+    if (!budget || isNaN(parsedBudget) || parsedBudget <= 0) {
+      setError("Please enter a valid positive budget amount.");
+      return;
+    }
+
     setLoading(true);
     setResult(null);
     setError(null);
@@ -24,7 +30,7 @@ export default function Planner() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
-          budget: parseFloat(budget), 
+          budget: parsedBudget, 
           horizon_days: 7, 
           candidate_items: [], 
           mode: investmentMode,
@@ -33,7 +39,9 @@ export default function Planner() {
       });
       const data = await res.json();
       if (!res.ok) {
-         setError(data.detail || "Optimization engine rejected the request.");
+         // CRASH PREVENTER: If detail is an array (Pydantic style), stringify it
+         const msg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+         setError(msg || "Optimization engine rejected the request.");
       } else {
          setResult(data);
       }
@@ -71,7 +79,7 @@ export default function Planner() {
               onChange={(e) => setBudget(e.target.value)} 
               className="bg-zinc-800 border-zinc-700 text-zinc-100"
             />
-            <Button disabled={loading || !budget} onClick={handleOptimize} className="bg-[#39FF14] text-black hover:bg-[#32e012] min-w-32">
+            <Button disabled={loading} onClick={handleOptimize} className="bg-[#39FF14] text-black hover:bg-[#32e012] min-w-32">
               {loading ? "Computing..." : "Run Engine"}
             </Button>
           </div>

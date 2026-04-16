@@ -15,17 +15,11 @@ class OptimizeRequest(BaseModel):
     mode: str = "lazy"
     tax_rate: float = 0.0125
 
-class LogRequest(BaseModel):
-    plan_id: str
-    recommended_items: str
-    budget: float
-    horizon_days: int
-    predicted_roi: float
-    actual_roi: float
-    actual_profit: float
-    notes: str = ""
-
 router = APIRouter(prefix="/api")
+
+@router.get("/health")
+async def health():
+    return {"status": "online", "version": "1.0.7-INTELLIGENCE"}
 
 @router.get("/items", response_model=List[str])
 async def get_items():
@@ -35,21 +29,6 @@ async def get_items():
         rows = await conn.fetch(query)
     return [row["item_id"] for row in rows]
 
-@router.get("/history/{item_id}", response_model=List[Dict[str, Any]])
-async def get_history(item_id: str, days: int = Query(30)):
-    if getattr(db, 'pool', None) is None: raise HTTPException(status_code=500, detail="DB disconnected")
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    query = "SELECT timestamp, buy_price, buy_volume, sell_price, sell_volume FROM bazaar_prices WHERE item_id = $1 AND timestamp >= $2 ORDER BY timestamp ASC;"
-    async with db.pool.acquire() as conn:
-        rows = await conn.fetch(query, item_id, cutoff)
-    return [dict(row) for row in rows]
-
-@router.get("/predict/{item_id}")
-async def get_prediction(item_id: str, days_history: int = Query(30), horizon_days: int = Query(7)):
-    prediction = await generate_prediction(item_id, days_history, horizon_days)
-    if not prediction: raise HTTPException(status_code=400, detail="Model failed")
-    return prediction
-
 @router.post("/optimize")
 async def optimize_stream(request: OptimizeRequest):
     if request.budget <= 0: raise HTTPException(status_code=400, detail="Budget <= 0")
@@ -57,19 +36,3 @@ async def optimize_stream(request: OptimizeRequest):
         async for update in optimize_portfolio_stream(request.budget, request.horizon_days, request.candidate_items, request.mode, request.tax_rate):
             yield f"data: {json.dumps(update)}\n\n"
     return StreamingResponse(event_generator(), media_type="text/event-stream")
-
-@router.post("/logs")
-async def add_log(log: LogRequest):
-    if getattr(db, 'pool', None) is None: raise HTTPException(status_code=500, detail="DB disconnected")
-    query = "INSERT INTO user_investment_logs (plan_id, recommended_items, budget, horizon_days, predicted_roi, actual_roi, actual_profit, notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id;"
-    async with db.pool.acquire() as conn:
-        new_id = await conn.fetchval(query, log.plan_id, log.recommended_items, log.budget, log.horizon_days, log.predicted_roi, log.actual_roi, log.actual_profit, log.notes)
-    return {"status": "success", "id": new_id}
-
-@router.get("/logs")
-async def get_logs():
-    if getattr(db, 'pool', None) is None: raise HTTPException(status_code=500, detail="DB disconnected")
-    query = "SELECT * FROM user_investment_logs ORDER BY timestamp DESC LIMIT 50;"
-    async with db.pool.acquire() as conn:
-        rows = await conn.fetch(query)
-    return [dict(row) for row in rows]

@@ -55,6 +55,12 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
             if cost <= 0:
                 continue
 
+            # LIQUIDITY CHECK: If volume data is missing or zero, skip this item entirely
+            market_depth = safe_float(pred.get("current_buy_volume", 0)) if mode == "flipper" else safe_float(pred.get("current_sell_volume", 0))
+            if market_depth <= 0:
+                logger.warning(f"Skipping {item} due to zero market depth.")
+                continue
+
             # Predict the NET exit value after tax
             raw_target_price = safe_float(pred.get("predicted_end_price", 0))
             price_delta = raw_target_price - cost
@@ -71,7 +77,7 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
                 net_predictions.append(pred)
 
     if not net_predictions:
-        return {"error": f"No items found that are profitable after {tax_rate*100}% Bazaar tax."}
+        return {"error": f"No items found that are profitable after {tax_rate*100}% Bazaar tax (or market depth is too thin)."}
 
     # Integer Linear Programming using PuLP
     prob = pulp.LpProblem("SkyBlock_Portfolio_Optimization", pulp.LpMaximize)
@@ -87,17 +93,22 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
         market_depth = safe_float(p.get("current_buy_volume", 0)) if mode == "flipper" else safe_float(p.get("current_sell_volume", 0))
         volume_cap = int(market_depth * 0.10)
         
+        # Diversification logic
         if num_candidates >= 3:
-            max_qty = int((budget * 0.4) / cost)
+            max_qty_diverse = int((budget * 0.4) / cost)
         else:
-            max_qty = int(budget / cost)
+            max_qty_diverse = int(budget / cost)
             
         max_qty_absolute = int(budget / cost)
-        upper_bound = min(max_qty, max_qty_absolute, volume_cap if volume_cap > 0 else max_qty_absolute)
+        
+        # STRICT LIQUIDITY GUARD: 10% of depth is the absolute limit. 
+        # REMOVED the 'fallback to absolute' logic to ensure realism.
+        upper_bound = min(max_qty_diverse, max_qty_absolute, volume_cap)
         
         if upper_bound > 0:
             item_vars[item] = pulp.LpVariable(f"qty_{item}", lowBound=0, upBound=upper_bound, cat='Integer')
-        elif num_candidates < 3 and max_qty_absolute >= 1 and (volume_cap >= 1 or market_depth >= 1):
+        elif num_candidates < 3 and max_qty_absolute >= 1 and volume_cap >= 1:
+            # Absolute fallback only allowed if even 10% depth allows at least 1 unit
             item_vars[item] = pulp.LpVariable(f"qty_{item}", lowBound=0, upBound=1, cat='Integer')
 
     if not item_vars:

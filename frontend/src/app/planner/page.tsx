@@ -98,7 +98,7 @@ export default function Planner() {
                 <Button 
                    variant="outline" 
                    size="sm"
-                   className={`flex-1 h-10 border-zinc-700 transition-all ${investmentMode === 'lazy' ? 'bg-[#39FF14]/20 text-[#39FF14] border-[#39FF14]/50 scale-[1.02]' : 'bg-transparent text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'}`}
+                   className={`flex-1 h-10 border-zinc-700 transition-all ${investmentMode === 'lazy' ? 'bg-[#39FF14] text-black border-[#39FF14] scale-[1.02]' : 'bg-transparent text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'}`}
                    onClick={() => setInvestmentMode("lazy")}
                 >
                    🟢 Lazy Investor (Insta-Buy)
@@ -106,7 +106,7 @@ export default function Planner() {
                 <Button 
                    variant="outline" 
                    size="sm"
-                   className={`flex-1 h-10 border-zinc-700 transition-all ${investmentMode === 'flipper' ? 'bg-[#f43f5e]/20 text-[#f43f5e] border-[#f43f5e]/50 scale-[1.02]' : 'bg-transparent text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'}`}
+                   className={`flex-1 h-10 border-zinc-700 transition-all ${investmentMode === 'flipper' ? 'bg-[#f43f5e] text-white border-[#f43f5e] scale-[1.02]' : 'bg-transparent text-zinc-500 hover:text-zinc-100 hover:bg-zinc-800'}`}
                    onClick={() => setInvestmentMode("flipper")}
                 >
                    🔴 Margin Flipper (Buy Orders)
@@ -123,10 +123,10 @@ export default function Planner() {
                   { label: "Derpy (5.0%)", val: 0.05 }
                 ].map(({ label, val }) => (
                    <Button 
-                      key={val}
+                      key={label}
                       variant="outline" 
                       size="sm"
-                      className={`flex-1 h-8 text-[10px] uppercase border-zinc-700 transition-all ${taxRate === val ? 'bg-zinc-100 text-black border-zinc-100' : 'bg-transparent text-zinc-500 hover:bg-zinc-800'}`}
+                      className={`flex-1 h-8 text-[10px] uppercase border-zinc-700 transition-all ${Math.abs(taxRate - val) < 0.0001 ? 'bg-zinc-100 text-black border-zinc-100' : 'bg-transparent text-zinc-500 hover:bg-zinc-800'}`}
                       onClick={() => setTaxRate(val)}
                    >
                       {label}
@@ -153,8 +153,8 @@ export default function Planner() {
              <div className="mt-4 p-3 bg-[#39FF14]/10 border border-[#39FF14]/30 rounded-lg flex items-center gap-3">
                 <span className="text-xl">ℹ️</span>
                 <div className="text-xs text-zinc-300 leading-relaxed">
-                   <p><span className="text-[#39FF14] font-bold">Tax-Aware Strategy Enabled:</span> Profits are calculated <span className="underline">NET</span> of the {(result.tax_rate ?? 0) * 100}% Bazaar tax.</p>
-                   <p className="mt-1 opacity-70 italic">Diversification & Liquidity Guard (10%) are also active.</p>
+                   <p><span className="text-[#39FF14] font-bold">Tax-Aware Strategy Enabled:</span> Profits are calculated <span className="underline">NET</span> of the {((result.tax_rate ?? taxRate) * 100).toFixed(2)}% Bazaar tax.</p>
+                   <p className="mt-1 opacity-70 italic">Diversification & Strict Liquidity Guard (10%) are active. Items with 0 volume are excluded.</p>
                 </div>
              </div>
           </CardHeader>

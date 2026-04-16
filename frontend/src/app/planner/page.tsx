@@ -39,7 +39,6 @@ export default function Planner() {
       });
       const data = await res.json();
       if (!res.ok) {
-         // CRASH PREVENTER: If detail is an array (Pydantic style), stringify it
          const msg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
          setError(msg || "Optimization engine rejected the request.");
       } else {
@@ -50,6 +49,15 @@ export default function Planner() {
       setError(err.message === "Failed to fetch" ? "Backend connection lost or waking up..." : "Failed to connect to optimization engine.");
     }
     setLoading(false);
+  };
+
+  // Safety formatter for numbers
+  const formatNum = (val: any, decimals = 0) => {
+    if (val === null || val === undefined || isNaN(val)) return "0";
+    return Number(val).toLocaleString(undefined, { 
+      minimumFractionDigits: 0, 
+      maximumFractionDigits: decimals 
+    });
   };
 
   return (
@@ -135,17 +143,17 @@ export default function Planner() {
              <div className="flex justify-between items-start">
                  <div>
                     <CardTitle className="text-zinc-100 font-vt323 text-2xl">Optimal Allocation Plan</CardTitle>
-                    <p className="text-zinc-400 text-sm mt-1">Expected Net ROI: <span className="text-[#39FF14] font-bold">{(result.expected_portfolio_roi * 100).toFixed(2)}%</span></p>
+                    <p className="text-zinc-400 text-sm mt-1">Expected Net ROI: <span className="text-[#39FF14] font-bold">{(Number(result.expected_portfolio_roi ?? 0) * 100).toFixed(2)}%</span></p>
                  </div>
                  <div className="text-right font-vt323">
                     <p className="text-zinc-400 text-sm">Allocated / Budget</p>
-                    <p className="text-[#39FF14] text-xl">{result.total_spent.toLocaleString()} / {result.budget_provided.toLocaleString()}</p>
+                    <p className="text-[#39FF14] text-xl">{formatNum(result.total_spent)} / {formatNum(result.budget_provided)}</p>
                  </div>
              </div>
              <div className="mt-4 p-3 bg-[#39FF14]/10 border border-[#39FF14]/30 rounded-lg flex items-center gap-3">
                 <span className="text-xl">ℹ️</span>
                 <div className="text-xs text-zinc-300 leading-relaxed">
-                   <p><span className="text-[#39FF14] font-bold">Tax-Aware Strategy Enabled:</span> Profits are calculated <span className="underline">NET</span> of the {result.tax_rate * 100}% Bazaar tax.</p>
+                   <p><span className="text-[#39FF14] font-bold">Tax-Aware Strategy Enabled:</span> Profits are calculated <span className="underline">NET</span> of the {(result.tax_rate ?? 0) * 100}% Bazaar tax.</p>
                    <p className="mt-1 opacity-70 italic">Diversification & Liquidity Guard (10%) are also active.</p>
                 </div>
              </div>
@@ -157,22 +165,24 @@ export default function Planner() {
                     <TableHead className="text-zinc-400">Item ID</TableHead>
                     <TableHead className="text-zinc-400 text-right">Quantity</TableHead>
                     <TableHead className="text-zinc-400 text-right">Market Cap (10%)</TableHead>
-                    <TableHead className="text-zinc-400 text-right">{investmentMode === 'lazy' ? 'Insta-Buy Price' : 'Buy Order Target'}</TableHead>
+                    <TableHead className="text-zinc-400 text-right">{investmentMode === 'lazy' ? 'Insta-Buy' : 'Buy Order'}</TableHead>
                     <TableHead className="text-zinc-400 text-right">Total Cost</TableHead>
-                    <TableHead className="text-[#39FF14] text-right">Net Expected Profit</TableHead>
+                    <TableHead className="text-[#39FF14] text-right">Net Profit</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {result.allocations.map((alloc: any) => (
-                    <TableRow key={alloc.item_id} className="border-zinc-800/50 hover:bg-zinc-800/50 transition-colors">
-                      <TableCell className="font-medium text-zinc-100">{alloc.item_id}</TableCell>
-                      <TableCell className="text-right text-zinc-300">{alloc.quantity.toLocaleString()}</TableCell>
+                  {result.allocations?.map((alloc: any, idx: number) => (
+                    <TableRow key={alloc.item_id || idx} className="border-zinc-800/50 hover:bg-zinc-800/50 transition-colors">
+                      <TableCell className="font-medium text-zinc-100">{alloc.item_id || "Unknown"}</TableCell>
+                      <TableCell className="text-right text-zinc-300">{formatNum(alloc.quantity)}</TableCell>
                       <TableCell className="text-right text-zinc-500 text-xs italic">
-                         {alloc.volume_cap_applied.toLocaleString()} units
+                         {formatNum(alloc.volume_cap_applied)} units
                       </TableCell>
-                      <TableCell className="text-right text-zinc-300">{alloc.unit_price.toLocaleString(undefined, {maximumFractionDigits:1})}</TableCell>
-                      <TableCell className="text-right text-zinc-300">{alloc.total_cost.toLocaleString(undefined, {maximumFractionDigits:1})}</TableCell>
-                      <TableCell className="text-right text-[#39FF14] font-bold drop-shadow-[0_0_8px_rgba(57,255,20,0.5)]">+{alloc.total_expected_profit.toLocaleString(undefined, {maximumFractionDigits:1})}</TableCell>
+                      <TableCell className="text-right text-zinc-300">{formatNum(alloc.unit_price, 1)}</TableCell>
+                      <TableCell className="text-right text-zinc-300">{formatNum(alloc.total_cost, 1)}</TableCell>
+                      <TableCell className="text-right text-[#39FF14] font-bold drop-shadow-[0_0_8px_rgba(57,255,20,0.5)]">
+                         +{formatNum(alloc.total_expected_profit, 1)}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -183,7 +193,7 @@ export default function Planner() {
       
       {result && result.error && (
          <div className="p-4 bg-red-900/20 border border-red-900/50 rounded-lg text-red-400 text-sm font-medium animate-in fade-in">
-            {result.error}
+            {typeof result.error === 'string' ? result.error : JSON.stringify(result.error)}
          </div>
       )}
     </div>

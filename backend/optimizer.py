@@ -1,10 +1,21 @@
 import pulp
 import logging
+import math
 from typing import List, Dict, Any
 from db import db
 from predictor import generate_prediction
 
 logger = logging.getLogger("optimizer")
+
+def safe_float(val: Any) -> float:
+    """Ensure a value is a valid float, converting NaN/Inf to 0.0."""
+    try:
+        f = float(val)
+        if math.isnan(f) or math.isinf(f):
+            return 0.0
+        return f
+    except (TypeError, ValueError):
+        return 0.0
 
 async def get_top_volume_items(limit: int = 15) -> List[str]:
     """Fallback: Fetch the most liquid items from the last 2 hours to optimize over."""
@@ -25,6 +36,7 @@ async def get_top_volume_items(limit: int = 15) -> List[str]:
     return [row["item_id"] for row in rows]
 
 async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: List[str] = None, mode: str = "lazy", tax_rate: float = 0.0125) -> Dict[str, Any]:
+    budget = safe_float(budget)
     if not candidate_items:
         candidate_items = await get_top_volume_items(limit=15)
         
@@ -36,21 +48,19 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
     net_predictions = []
     for item in candidate_items:
         pred = await generate_prediction(item, horizon_days=horizon_days)
-        if pred and pred.get("current_price", 0) > 0:
+        if pred and safe_float(pred.get("current_price", 0)) > 0:
             # Entry cost depends on mode
-            cost = pred.get("current_buy_order_price", pred["current_price"]) if mode == "flipper" else pred["current_price"]
+            cost = safe_float(pred.get("current_buy_order_price", pred["current_price"])) if mode == "flipper" else safe_float(pred["current_price"])
             
             if cost <= 0:
                 continue
 
             # Predict the NET exit value after tax
-            # Note: We apply calibration factor to the raw expected GAIN (or loss)
-            raw_target_price = pred["predicted_end_price"]
+            raw_target_price = safe_float(pred.get("predicted_end_price", 0))
             price_delta = raw_target_price - cost
-            calibrated_exit_price = cost + (price_delta * pred.get("calibration_factor_applied", 1.0))
+            calibrated_exit_price = cost + (price_delta * safe_float(pred.get("calibration_factor_applied", 1.0)))
             
             # Final Net ROI calculation after tax
-            # Tax is applied to the final sale price
             net_profit_per_unit = (calibrated_exit_price * (1 - tax_rate)) - cost
             net_roi = net_profit_per_unit / cost
             
@@ -64,7 +74,6 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
         return {"error": f"No items found that are profitable after {tax_rate*100}% Bazaar tax."}
 
     # Integer Linear Programming using PuLP
-    # Maximize SUM(x_i * net_profit_i)
     prob = pulp.LpProblem("SkyBlock_Portfolio_Optimization", pulp.LpMaximize)
     
     # Decision Variables
@@ -73,11 +82,9 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
     
     for p in net_predictions:
         item = p["item_id"]
-        cost = p.get("current_buy_order_price", p["current_price"]) if mode == "flipper" else p["current_price"]
+        cost = safe_float(p.get("current_buy_order_price", p["current_price"])) if mode == "flipper" else safe_float(p["current_price"])
         
-        # Max allocation: 40% of budget per asset to enforce diversification
-        # VOLUME CONSTRAINT: 10% of the recorded market depth to prevent unrealistic orders
-        market_depth = p["current_buy_volume"] if mode == "flipper" else p["current_sell_volume"]
+        market_depth = safe_float(p.get("current_buy_volume", 0)) if mode == "flipper" else safe_float(p.get("current_sell_volume", 0))
         volume_cap = int(market_depth * 0.10)
         
         if num_candidates >= 3:
@@ -90,8 +97,7 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
         
         if upper_bound > 0:
             item_vars[item] = pulp.LpVariable(f"qty_{item}", lowBound=0, upBound=upper_bound, cat='Integer')
-        elif num_candidates < 3 and max_qty_absolute >= 1 and volume_cap >= 1:
-            # Fallback: if we have very few items, at least allow buying one if budget and volume permits
+        elif num_candidates < 3 and max_qty_absolute >= 1 and (volume_cap >= 1 or market_depth >= 1):
             item_vars[item] = pulp.LpVariable(f"qty_{item}", lowBound=0, upBound=1, cat='Integer')
 
     if not item_vars:
@@ -103,18 +109,15 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
     for p in net_predictions:
         item = p["item_id"]
         if item in item_vars:
-            cost = p.get("current_buy_order_price", p["current_price"]) if mode == "flipper" else p["current_price"]
-            net_profit = p["net_profit_per_unit"]
+            cost = safe_float(p.get("current_buy_order_price", p["current_price"])) if mode == "flipper" else safe_float(p["current_price"])
+            net_profit = safe_float(p.get("net_profit_per_unit", 0))
             profits_expr.append(item_vars[item] * net_profit)
             costs_expr.append(item_vars[item] * cost)
             
     # Objective: Maximize Total Net Profit
     prob += pulp.lpSum(profits_expr), "Total_Expected_Net_Profit"
-    
-    # Constraint
     prob += pulp.lpSum(costs_expr) <= budget, "Total_Cost"
     
-    # Solve
     try:
         prob.solve(pulp.PULP_CBC_CMD(msg=0))
     except Exception as e:
@@ -132,21 +135,21 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
     for p in net_predictions:
         item = p["item_id"]
         if item in item_vars:
-            qty = int(item_vars[item].varValue)
+            qty = int(safe_float(item_vars[item].varValue))
             if qty > 0:
-                cost = p.get("current_buy_order_price", p["current_price"]) if mode == "flipper" else p["current_price"]
-                market_depth = p["current_buy_volume"] if mode == "flipper" else p["current_sell_volume"]
-                net_profit = p["net_profit_per_unit"]
+                cost = safe_float(p.get("current_buy_order_price", p["current_price"])) if mode == "flipper" else safe_float(p["current_price"])
+                market_depth = safe_float(p.get("current_buy_volume", 0)) if mode == "flipper" else safe_float(p.get("current_sell_volume", 0))
+                net_profit = safe_float(p.get("net_profit_per_unit", 0))
                 allocations.append({
                     "item_id": item,
                     "quantity": qty,
                     "unit_price": cost,
-                    "total_cost": qty * cost,
+                    "total_cost": float(qty * cost),
                     "market_volume": market_depth,
                     "volume_cap_applied": int(market_depth * 0.10),
                     "expected_profit_per_unit": net_profit,
-                    "total_expected_profit": qty * net_profit,
-                    "roi": p["net_roi"],
+                    "total_expected_profit": float(qty * net_profit),
+                    "roi": safe_float(p.get("net_roi", 0)),
                     "tax_applied": tax_rate
                 })
                 total_spent += (qty * cost)
@@ -156,11 +159,11 @@ async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: 
     
     return {
         "status": "optimal",
-        "budget_provided": budget,
-        "tax_rate": tax_rate,
-        "total_spent": total_spent,
-        "remaining_budget": budget - total_spent,
-        "total_expected_profit": total_expected_net_profit,
-        "expected_portfolio_roi": (total_expected_net_profit / total_spent) if total_spent > 0 else 0,
+        "budget_provided": float(budget),
+        "tax_rate": float(tax_rate),
+        "total_spent": float(total_spent),
+        "remaining_budget": float(budget - total_spent),
+        "total_expected_profit": float(total_expected_net_profit),
+        "expected_portfolio_roi": float(total_expected_net_profit / total_spent) if total_spent > 0 else 0.0,
         "allocations": allocations
     }

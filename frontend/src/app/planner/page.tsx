@@ -4,7 +4,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Progress } from "@/components/ui/progress";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -26,7 +25,6 @@ export default function Planner() {
     }
     setLoading(true); setResult(null); setError(null); setProgress(0);
     setCurrentAction("Initializing Stream...");
-    console.log("Starting Optimization Run - Version 1.0.5");
     try {
       const resp = await fetch(`${API_BASE_URL}/api/optimize`, {
         method: "POST",
@@ -72,7 +70,7 @@ export default function Planner() {
       <div className="flex flex-col gap-2">
         <div className="flex justify-between items-baseline">
            <h1 className="text-4xl font-vt323 tracking-wide text-[#39FF14]">Portfolio Optimizer</h1>
-           <span className="text-[10px] font-mono text-zinc-600">v1.0.5-INTELLIGENCE</span>
+           <span className="text-[10px] font-mono text-zinc-600">v1.0.6-STABLE</span>
         </div>
         <p className="text-zinc-400">Run the PuLP Linear Programming engine to find the exact optimal purchase allocations.</p>
       </div>
@@ -86,7 +84,13 @@ export default function Planner() {
           {loading && (
             <div className="space-y-2 animate-in fade-in">
               <div className="flex justify-between text-[10px] font-mono uppercase tracking-widest text-[#39FF14]"><span>{currentAction}</span><span>{progress}%</span></div>
-              <Progress value={progress} className="h-1.5 bg-zinc-800" />
+              {/* Custom CSS Progress Bar */}
+              <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-[#39FF14] transition-all duration-500 ease-out" 
+                  style={{ width: `${progress}%` }} 
+                />
+              </div>
             </div>
           )}
           <div className="space-y-3">

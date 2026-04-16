@@ -1,4 +1,6 @@
-"use client";
+import os
+
+PAGE_CODE = r'''"use client";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -143,3 +145,12 @@ export default function Planner() {
     </div>
   );
 }
+'''
+
+def update_version():
+    print("Injecting Build Version v1.0.5 into page.tsx...")
+    with open("frontend/src/app/planner/page.tsx", "w", encoding="utf-8") as f:
+        f.write(PAGE_CODE)
+    
+if __name__ == "__main__":
+    update_version()

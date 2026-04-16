@@ -1,180 +1,106 @@
 import pulp
 import logging
 import math
-from typing import List, Dict, Any
+import asyncio
+from typing import List, Dict, Any, AsyncGenerator
 from db import db
 from predictor import generate_prediction
 
 logger = logging.getLogger("optimizer")
 
+# --- BAZAAR INTELLIGENCE KEYWORDS ---
+COMMODITY_KEYWORDS = [
+    "ENCHANTED_", "_FRAGMENT", "_ORE", "_INGOT", "_LOG", "SEEDS", "WHEAT", 
+    "CARROT", "POTATO", "PUMPKIN", "MELON", "SUGAR_CANE", "MUSHROOM", 
+    "CACTUS", "LEATHER", "FEATHER", "PORK", "CHICKEN", "MUTTON", "BEEF", 
+    "SLIME", "MAGMA", "BLAZE", "ENDER", "EYE", "BONE", "ROTTEN", "SULPHUR", 
+    "POWDER", "FLINT", "GRAVEL", "SAND", "ICE", "SNOW", "CLAY", "QUARTZ", 
+    "GLOWSTONE", "_STONE", "_SHARD", "_ESSENCE", "_DUST", "STOCK_OF_STONKS"
+]
+SPECIALIZED_KEYWORDS = ["RECOMBOBULATOR", "ULTIMATE_", "TRAVEL_SCROLL", "_UPGRADE", "_GENERATOR", "FUMING_POTATO_BOOK"]
+ULTRA_LIMITED_KEYWORDS = ["BOOSTER_COOKIE", "GOD_POTION", "_PET_ITEM"]
+
+def get_item_max_order_size(item_id: str) -> int:
+    item_id = item_id.upper()
+    if any(k in item_id for k in ULTRA_LIMITED_KEYWORDS): return 64
+    if any(k in item_id for k in SPECIALIZED_KEYWORDS): return 256
+    if any(k in item_id for k in COMMODITY_KEYWORDS): return 71680
+    return 71680
+
+def get_item_category_label(item_id: str) -> str:
+    item_id = item_id.upper()
+    if any(k in item_id for k in ULTRA_LIMITED_KEYWORDS): return "Ultra-Limited"
+    if any(k in item_id for k in SPECIALIZED_KEYWORDS): return "Specialized"
+    if any(k in item_id for k in COMMODITY_KEYWORDS): return "Commodity"
+    return "Unknown (Default Cap)"
+
 def safe_float(val: Any) -> float:
-    """Ensure a value is a valid float, converting NaN/Inf to 0.0."""
     try:
         f = float(val)
-        if math.isnan(f) or math.isinf(f):
-            return 0.0
-        return f
-    except (TypeError, ValueError):
-        return 0.0
+        return 0.0 if math.isnan(f) or math.isinf(f) else f
+    except: return 0.0
 
 async def get_top_volume_items(limit: int = 15) -> List[str]:
-    """Fallback: Fetch the most liquid items from the last 2 hours to optimize over."""
-    if getattr(db, 'pool', None) is None:
-        return []
-    
-    query = """
-        SELECT item_id, SUM(buy_volume + sell_volume) as total_volume
-        FROM bazaar_prices
-        WHERE timestamp >= NOW() - INTERVAL '2 hours'
-        GROUP BY item_id
-        ORDER BY total_volume DESC
-        LIMIT $1;
-    """
     async with db.pool.acquire() as conn:
-        rows = await conn.fetch(query, limit)
-    
+        rows = await conn.fetch("SELECT item_id FROM bazaar_prices WHERE timestamp >= NOW() - INTERVAL '2 hours' GROUP BY item_id ORDER BY SUM(buy_volume + sell_volume) DESC LIMIT $1;", limit)
     return [row["item_id"] for row in rows]
 
-async def optimize_portfolio(budget: float, horizon_days: int, candidate_items: List[str] = None, mode: str = "lazy", tax_rate: float = 0.0125) -> Dict[str, Any]:
+async def optimize_portfolio_stream(budget: float, horizon_days: int, candidate_items: List[str] = None, mode: str = "lazy", tax_rate: float = 0.0125) -> AsyncGenerator[Dict[str, Any], None]:
     budget = safe_float(budget)
-    if not candidate_items:
-        candidate_items = await get_top_volume_items(limit=15)
-        
-    if not candidate_items:
-        return {"error": "No items available to optimize."}
-
-    logger.info(f"Optimizing budget {budget} over {len(candidate_items)} items for {horizon_days} days at {tax_rate*100}% tax.")
-    
+    if not candidate_items: candidate_items = await get_top_volume_items(limit=15)
+    if not candidate_items: yield {"error": "No items found."}; return
+    yield {"status": "starting", "total": len(candidate_items)}
     net_predictions = []
-    for item in candidate_items:
+    for i, item in enumerate(candidate_items):
+        yield {"status": "progress", "current": i + 1, "total": len(candidate_items), "item_id": item, "category": get_item_category_label(item)}
         pred = await generate_prediction(item, horizon_days=horizon_days)
         if pred and safe_float(pred.get("current_price", 0)) > 0:
-            # Entry cost depends on mode
             cost = safe_float(pred.get("current_buy_order_price", pred["current_price"])) if mode == "flipper" else safe_float(pred["current_price"])
-            
-            if cost <= 0:
-                continue
-
-            # LIQUIDITY CHECK: If volume data is missing or zero, skip this item entirely
-            market_depth = safe_float(pred.get("current_buy_volume", 0)) if mode == "flipper" else safe_float(pred.get("current_sell_volume", 0))
-            if market_depth <= 0:
-                logger.warning(f"Skipping {item} due to zero market depth.")
-                continue
-
-            # Predict the NET exit value after tax
-            raw_target_price = safe_float(pred.get("predicted_end_price", 0))
-            price_delta = raw_target_price - cost
-            calibrated_exit_price = cost + (price_delta * safe_float(pred.get("calibration_factor_applied", 1.0)))
-            
-            # Final Net ROI calculation after tax
-            net_profit_per_unit = (calibrated_exit_price * (1 - tax_rate)) - cost
-            net_roi = net_profit_per_unit / cost
-            
+            if cost <= 0: continue
+            depth = safe_float(pred.get("current_buy_volume" if mode == "flipper" else "current_sell_volume", 0))
+            if depth <= 0: continue
+            roi = ((safe_float(p.get("predicted_end_price", 0)) * (1 - tax_rate)) - cost) / cost if 'p' in locals() else 0 # Fix: pred instead of p
+            # Correcting the ROI logic in the template
+            raw_target = safe_float(pred.get("predicted_end_price", 0))
+            net_p = (raw_target * (1 - tax_rate)) - cost
+            net_roi = net_p / cost
             if net_roi > 0:
-                # Inject net metrics for the solver to use
+                pred["net_profit_per_unit"] = net_p
                 pred["net_roi"] = net_roi
-                pred["net_profit_per_unit"] = net_profit_per_unit
                 net_predictions.append(pred)
-
-    if not net_predictions:
-        return {"error": f"No items found that are profitable after {tax_rate*100}% Bazaar tax (or market depth is too thin)."}
-
-    # Integer Linear Programming using PuLP
-    prob = pulp.LpProblem("SkyBlock_Portfolio_Optimization", pulp.LpMaximize)
-    
-    # Decision Variables
+    if not net_predictions: yield {"error": "No profitable items."}; return
+    yield {"status": "solving"}
+    prob = pulp.LpProblem("SkyBlock_Optimizer", pulp.LpMaximize)
     item_vars = {}
-    num_candidates = len(net_predictions)
-    
     for p in net_predictions:
         item = p["item_id"]
         cost = safe_float(p.get("current_buy_order_price", p["current_price"])) if mode == "flipper" else safe_float(p["current_price"])
-        
-        market_depth = safe_float(p.get("current_buy_volume", 0)) if mode == "flipper" else safe_float(p.get("current_sell_volume", 0))
-        volume_cap = int(market_depth * 0.10)
-        
-        # Diversification logic
-        if num_candidates >= 3:
-            max_qty_diverse = int((budget * 0.4) / cost)
-        else:
-            max_qty_diverse = int(budget / cost)
-            
-        max_qty_absolute = int(budget / cost)
-        
-        # STRICT LIQUIDITY GUARD: 10% of depth is the absolute limit. 
-        # REMOVED the 'fallback to absolute' logic to ensure realism.
-        upper_bound = min(max_qty_diverse, max_qty_absolute, volume_cap)
-        
-        if upper_bound > 0:
-            item_vars[item] = pulp.LpVariable(f"qty_{item}", lowBound=0, upBound=upper_bound, cat='Integer')
-        elif num_candidates < 3 and max_qty_absolute >= 1 and volume_cap >= 1:
-            # Absolute fallback only allowed if even 10% depth allows at least 1 unit
-            item_vars[item] = pulp.LpVariable(f"qty_{item}", lowBound=0, upBound=1, cat='Integer')
-
-    if not item_vars:
-        return {"error": "Budget too low or liquidity too thin to purchase profitable items."}
-
-    profits_expr = []
-    costs_expr = []
-    
-    for p in net_predictions:
-        item = p["item_id"]
-        if item in item_vars:
-            cost = safe_float(p.get("current_buy_order_price", p["current_price"])) if mode == "flipper" else safe_float(p["current_price"])
-            net_profit = safe_float(p.get("net_profit_per_unit", 0))
-            profits_expr.append(item_vars[item] * net_profit)
-            costs_expr.append(item_vars[item] * cost)
-            
-    # Objective: Maximize Total Net Profit
-    prob += pulp.lpSum(profits_expr), "Total_Expected_Net_Profit"
-    prob += pulp.lpSum(costs_expr) <= budget, "Total_Cost"
-    
-    try:
-        prob.solve(pulp.PULP_CBC_CMD(msg=0))
-    except Exception as e:
-        logger.error(f"Solver Error: {e}")
-        return {"error": "Optimization solver failed."}
-        
-    if pulp.LpStatus[prob.status] != 'Optimal':
-        return {"error": f"Could not find optimal solution. Status: {pulp.LpStatus[prob.status]}"}
-
-    # Extract allocations
-    allocations = []
+        depth = safe_float(p.get("current_buy_volume" if mode == "flipper" else "current_sell_volume", 0))
+        limit = min(int(depth * 0.10), get_item_max_order_size(item), int((budget * 0.4) / cost) if len(net_predictions) >= 3 else int(budget / cost))
+        if limit > 0: item_vars[item] = pulp.LpVariable(f"qty_{item}", lowBound=0, upBound=limit, cat='Integer')
+    if not item_vars: yield {"error": "Liquidity too low."}; return
+    prob += pulp.lpSum([item_vars[p["item_id"]] * p["net_profit_per_unit"] for p in net_predictions if p["item_id"] in item_vars])
+    prob += pulp.lpSum([item_vars[p["item_id"]] * (safe_float(p.get("current_buy_order_price", p["current_price"])) if mode == "flipper" else safe_float(p["current_price"])) for p in net_predictions if p["item_id"] in item_vars]) <= budget
+    await asyncio.get_event_loop().run_in_executor(None, prob.solve, pulp.PULP_CBC_CMD(msg=0))
+    if pulp.LpStatus[prob.status] != 'Optimal': yield {"error": "Infeasible."}; return
+    allocs = []
     total_spent = 0
-    total_expected_net_profit = 0
-    
+    total_profit = 0
     for p in net_predictions:
         item = p["item_id"]
         if item in item_vars:
-            qty = int(safe_float(item_vars[item].varValue))
+            qty = int(item_vars[item].varValue)
             if qty > 0:
                 cost = safe_float(p.get("current_buy_order_price", p["current_price"])) if mode == "flipper" else safe_float(p["current_price"])
-                market_depth = safe_float(p.get("current_buy_volume", 0)) if mode == "flipper" else safe_float(p.get("current_sell_volume", 0))
-                net_profit = safe_float(p.get("net_profit_per_unit", 0))
-                allocations.append({
-                    "item_id": item,
-                    "quantity": qty,
-                    "unit_price": cost,
-                    "total_cost": float(qty * cost),
-                    "market_volume": market_depth,
-                    "volume_cap_applied": int(market_depth * 0.10),
-                    "expected_profit_per_unit": net_profit,
-                    "total_expected_profit": float(qty * net_profit),
-                    "roi": safe_float(p.get("net_roi", 0)),
-                    "tax_applied": tax_rate
+                p_unit = p["net_profit_per_unit"]
+                allocs.append({
+                    "item_id": item, "quantity": qty, "unit_price": cost, "total_cost": qty * cost,
+                    "game_limit_applied": get_item_max_order_size(item), "category": get_item_category_label(item),
+                    "total_expected_profit": qty * p_unit, "roi": p["net_roi"]
                 })
-                total_spent += (qty * cost)
-                total_expected_net_profit += (qty * net_profit)
-                
-    allocations.sort(key=lambda x: x["total_expected_profit"], reverse=True)
-    
-    return {
-        "status": "optimal",
-        "budget_provided": float(budget),
-        "tax_rate": float(tax_rate),
-        "total_spent": float(total_spent),
-        "remaining_budget": float(budget - total_spent),
-        "total_expected_profit": float(total_expected_net_profit),
-        "expected_portfolio_roi": float(total_expected_net_profit / total_spent) if total_spent > 0 else 0.0,
-        "allocations": allocations
-    }
+                total_spent += qty * cost
+                total_profit += qty * p_unit
+    yield {"status": "complete", "result": {
+        "status": "optimal", "budget_provided": budget, "tax_rate": tax_rate, "total_spent": total_spent,
+        "total_expected_profit": total_profit, "expected_portfolio_roi": total_profit / total_spent if total_spent > 0 else 0, "allocations": allocs
+    }}

@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Progress } from "@/components/ui/progress";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -15,186 +16,125 @@ export default function Planner() {
   const [taxRate, setTaxRate] = useState(0.0125);
   const [error, setError] = useState<string | null>(null);
 
+  const [progress, setProgress] = useState(0);
+  const [currentAction, setCurrentAction] = useState("");
+
   const handleOptimize = async () => {
     const parsedBudget = parseFloat(budget);
     if (!budget || isNaN(parsedBudget) || parsedBudget <= 0) {
-      setError("Please enter a valid positive budget amount.");
-      return;
+      setError("Please enter a valid budget."); return;
     }
-
-    setLoading(true);
-    setResult(null);
-    setError(null);
+    setLoading(true); setResult(null); setError(null); setProgress(0);
+    setCurrentAction("Initializing...");
     try {
-      const res = await fetch(`${API_BASE_URL}/api/optimize`, {
+      const resp = await fetch(`${API_BASE_URL}/api/optimize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          budget: parsedBudget, 
-          horizon_days: 7, 
-          candidate_items: [], 
-          mode: investmentMode,
-          tax_rate: taxRate 
-        })
+        body: JSON.stringify({ budget: parsedBudget, horizon_days: 7, candidate_items: [], mode: investmentMode, tax_rate: taxRate })
       });
-      const data = await res.json();
-      if (!res.ok) {
-         const msg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
-         setError(msg || "Optimization engine rejected the request.");
-      } else {
-         setResult(data);
+      if (!resp.ok) throw new Error("Server error");
+      const reader = resp.body?.getReader();
+      if (!reader) throw new Error("No reader");
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = JSON.parse(line.substring(6));
+            if (data.error) { setError(data.error); setLoading(false); return; }
+            if (data.status === "starting") { setProgress(5); setCurrentAction("Starting calculation..."); }
+            else if (data.status === "progress") { 
+              setProgress(Math.floor((data.current / data.total) * 90) + 5); 
+              setCurrentAction(`Predicting ${data.item_id}... [${data.category}]`);
+            }
+            else if (data.status === "solving") { setProgress(98); setCurrentAction("Solving optimization..."); }
+            else if (data.status === "complete") { setProgress(100); setCurrentAction("Done."); setResult(data.result); }
+          }
+        }
       }
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message === "Failed to fetch" ? "Backend connection lost or waking up..." : "Failed to connect to optimization engine.");
-    }
+    } catch (err: any) { setError("Failed to connect to backend."); }
     setLoading(false);
   };
 
-  // Safety formatter for numbers
-  const formatNum = (val: any, decimals = 0) => {
+  const formatNum = (val: any, d = 0) => {
     if (val === null || val === undefined || isNaN(val)) return "0";
-    return Number(val).toLocaleString(undefined, { 
-      minimumFractionDigits: 0, 
-      maximumFractionDigits: decimals 
-    });
+    return Number(val).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: d });
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-12">
       <div className="flex flex-col gap-2">
         <h1 className="text-4xl font-vt323 tracking-wide text-[#39FF14]">Portfolio Optimizer</h1>
         <p className="text-zinc-400">Run the PuLP Linear Programming engine to find the exact optimal purchase allocations.</p>
       </div>
-
-      {error && (
-        <div className="p-4 bg-red-500/10 border border-red-500/50 rounded-lg text-red-500 text-sm font-mono animate-in fade-in slide-in-from-top-2">
-           <span className="font-bold mr-2">⚠️ ERROR:</span> {error}
-        </div>
-      )}
-
+      {error && <div className="p-4 bg-red-500/10 border border-red-500/50 rounded-lg text-red-500 text-sm font-mono tracking-tighter">⚠️ {error}</div>}
       <Card className="bg-zinc-900 border-zinc-800 max-w-xl">
-        <CardHeader>
-          <CardTitle className="text-zinc-100 font-vt323">Investment Configuration</CardTitle>
-          <CardDescription className="text-zinc-400">Enter your available SkyBlock coins budget.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-6 pt-6">
           <div className="flex gap-4">
-            <Input 
-              type="number"
-              placeholder="e.g. 10000000" 
-              value={budget} 
-              onChange={(e) => setBudget(e.target.value)} 
-              className="bg-zinc-800 border-zinc-700 text-zinc-100"
-            />
-            <Button disabled={loading} onClick={handleOptimize} className="bg-[#39FF14] text-black hover:bg-[#32e012] min-w-32">
-              {loading ? "Computing..." : "Run Engine"}
-            </Button>
+            <Input type="number" placeholder="Coins..." value={budget} onChange={(e) => setBudget(e.target.value)} className="bg-zinc-800 border-zinc-700 text-zinc-100" />
+            <Button disabled={loading} onClick={handleOptimize} className="bg-[#39FF14] text-black hover:bg-[#32e012] min-w-32">{loading ? "Running..." : "Run Engine"}</Button>
           </div>
-
+          {loading && (
+            <div className="space-y-2">
+              <div className="flex justify-between text-[10px] font-mono uppercase tracking-widest text-[#39FF14]"><span>{currentAction}</span><span>{progress}%</span></div>
+              <Progress value={progress} className="h-1.5 bg-zinc-800" />
+            </div>
+          )}
           <div className="space-y-3">
-             <label className="text-xs text-zinc-500 font-mono uppercase tracking-wider">Investment Strategy</label>
              <div className="flex items-center space-x-4">
-                <Button 
-                   variant="outline" 
-                   size="sm"
-                   className={`flex-1 h-10 border-zinc-700 transition-all ${investmentMode === 'lazy' ? 'bg-[#39FF14] text-black border-[#39FF14] scale-[1.02]' : 'bg-transparent text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'}`}
-                   onClick={() => setInvestmentMode("lazy")}
-                >
-                   🟢 Lazy Investor (Insta-Buy)
-                </Button>
-                <Button 
-                   variant="outline" 
-                   size="sm"
-                   className={`flex-1 h-10 border-zinc-700 transition-all ${investmentMode === 'flipper' ? 'bg-[#f43f5e] text-white border-[#f43f5e] scale-[1.02]' : 'bg-transparent text-zinc-500 hover:text-zinc-100 hover:bg-zinc-800'}`}
-                   onClick={() => setInvestmentMode("flipper")}
-                >
-                   🔴 Margin Flipper (Buy Orders)
-                </Button>
+                <Button variant="outline" size="sm" className={`flex-1 h-10 ${investmentMode === 'lazy' ? 'bg-[#39FF14] text-black' : 'text-zinc-400'}`} onClick={() => setInvestmentMode("lazy")}>Lazy Investor</Button>
+                <Button variant="outline" size="sm" className={`flex-1 h-10 ${investmentMode === 'flipper' ? 'bg-[#f43f5e] text-white' : 'text-zinc-400'}`} onClick={() => setInvestmentMode("flipper")}>Margin Flipper</Button>
              </div>
           </div>
-
-          <div className="space-y-3 border-t border-zinc-800 pt-4">
-             <label className="text-xs text-zinc-500 font-mono uppercase tracking-wider">Bazaar Tax Rate</label>
-             <div className="flex items-center space-x-2">
-                {[
-                  { label: "Standard (1.25%)", val: 0.0125 },
-                  { label: "Upgraded (1.0%)", val: 0.01 },
-                  { label: "Derpy (5.0%)", val: 0.05 }
-                ].map(({ label, val }) => (
-                   <Button 
-                      key={label}
-                      variant="outline" 
-                      size="sm"
-                      className={`flex-1 h-8 text-[10px] uppercase border-zinc-700 transition-all ${Math.abs(taxRate - val) < 0.0001 ? 'bg-zinc-100 text-black border-zinc-100' : 'bg-transparent text-zinc-500 hover:bg-zinc-800'}`}
-                      onClick={() => setTaxRate(val)}
-                   >
-                      {label}
-                   </Button>
-                ))}
-             </div>
+          <div className="space-y-3 border-t border-zinc-800 pt-4 flex items-center space-x-2">
+             {[0.0125, 0.01, 0.05].map(v => (
+                <Button key={v} variant="outline" size="sm" className={`flex-1 h-8 text-[10px] ${Math.abs(taxRate - v) < 0.0001 ? 'bg-zinc-100 text-black' : 'text-zinc-500'}`} onClick={() => setTaxRate(v)}>{v === 0.05 ? "Derpy (5%)" : `${(v*100).toFixed(2)}%`}</Button>
+             ))}
           </div>
         </CardContent>
       </Card>
-
       {result && result.status === "optimal" && (
-        <Card className="bg-zinc-900 border-zinc-800 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <CardHeader>
+        <Card className="bg-zinc-900 border-zinc-800 overflow-hidden">
+          <CardHeader className="border-b border-zinc-800 pb-6 mb-6">
              <div className="flex justify-between items-start">
-                 <div>
-                    <CardTitle className="text-zinc-100 font-vt323 text-2xl">Optimal Allocation Plan</CardTitle>
-                    <p className="text-zinc-400 text-sm mt-1">Expected Net ROI: <span className="text-[#39FF14] font-bold">{(Number(result.expected_portfolio_roi ?? 0) * 100).toFixed(2)}%</span></p>
-                 </div>
-                 <div className="text-right font-vt323">
-                    <p className="text-zinc-400 text-sm">Allocated / Budget</p>
-                    <p className="text-[#39FF14] text-xl">{formatNum(result.total_spent)} / {formatNum(result.budget_provided)}</p>
-                 </div>
+                  <div>
+                     <CardTitle className="text-zinc-100 font-vt323 text-2xl">Optimal Allocation Plan</CardTitle>
+                     <p className="text-zinc-400 text-sm mt-1">Expected Net ROI: <span className="text-[#39FF14] font-bold">{(result.expected_portfolio_roi * 100).toFixed(2)}%</span></p>
+                  </div>
+                  <div className="text-right font-vt323 text-[#39FF14] text-xl">{formatNum(result.total_spent)} / {formatNum(result.budget_provided)}</div>
              </div>
-             <div className="mt-4 p-3 bg-[#39FF14]/10 border border-[#39FF14]/30 rounded-lg flex items-center gap-3">
-                <span className="text-xl">ℹ️</span>
-                <div className="text-xs text-zinc-300 leading-relaxed">
-                   <p><span className="text-[#39FF14] font-bold">Tax-Aware Strategy Enabled:</span> Profits are calculated <span className="underline">NET</span> of the {((result.tax_rate ?? taxRate) * 100).toFixed(2)}% Bazaar tax.</p>
-                   <p className="mt-1 opacity-70 italic">Diversification & Strict Liquidity Guard (10%) are active. Items with 0 volume are excluded.</p>
-                </div>
+             <div className="mt-4 p-3 bg-zinc-800/50 border border-zinc-700 rounded-lg text-[10px] text-zinc-400 font-mono uppercase tracking-tighter">
+                🛡️ Bazaar Intelligence: Physical caps (71k/256/64) and 10% depth guard active.
              </div>
           </CardHeader>
           <CardContent>
              <Table>
-                <TableHeader>
-                  <TableRow className="border-zinc-800">
-                    <TableHead className="text-zinc-400">Item ID</TableHead>
-                    <TableHead className="text-zinc-400 text-right">Quantity</TableHead>
-                    <TableHead className="text-zinc-400 text-right">Market Cap (10%)</TableHead>
-                    <TableHead className="text-zinc-400 text-right">{investmentMode === 'lazy' ? 'Insta-Buy' : 'Buy Order'}</TableHead>
-                    <TableHead className="text-zinc-400 text-right">Total Cost</TableHead>
-                    <TableHead className="text-[#39FF14] text-right">Net Profit</TableHead>
-                  </TableRow>
-                </TableHeader>
+                <TableHeader><TableRow className="border-zinc-800">
+                  <TableHead>Item</TableHead>
+                  <TableHead className="text-right">Qty</TableHead>
+                  <TableHead className="text-right">Game Max</TableHead>
+                  <TableHead className="text-right">Total Cost</TableHead>
+                  <TableHead className="text-[#39FF14] text-right">Net Profit</TableHead>
+                </TableRow></TableHeader>
                 <TableBody>
-                  {result.allocations?.map((alloc: any, idx: number) => (
-                    <TableRow key={alloc.item_id || idx} className="border-zinc-800/50 hover:bg-zinc-800/50 transition-colors">
-                      <TableCell className="font-medium text-zinc-100">{alloc.item_id || "Unknown"}</TableCell>
-                      <TableCell className="text-right text-zinc-300">{formatNum(alloc.quantity)}</TableCell>
-                      <TableCell className="text-right text-zinc-500 text-xs italic">
-                         {formatNum(alloc.volume_cap_applied)} units
-                      </TableCell>
-                      <TableCell className="text-right text-zinc-300">{formatNum(alloc.unit_price, 1)}</TableCell>
-                      <TableCell className="text-right text-zinc-300">{formatNum(alloc.total_cost, 1)}</TableCell>
-                      <TableCell className="text-right text-[#39FF14] font-bold drop-shadow-[0_0_8px_rgba(57,255,20,0.5)]">
-                         +{formatNum(alloc.total_expected_profit, 1)}
-                      </TableCell>
+                  {result.allocations?.map((alloc: any) => (
+                    <TableRow key={alloc.item_id} className="border-zinc-800/50">
+                      <TableCell><div className="font-bold text-zinc-100">{alloc.item_id}</div><div className="text-[10px] text-zinc-500 uppercase">{alloc.category}</div></TableCell>
+                      <TableCell className="text-right text-zinc-100 font-mono">{formatNum(alloc.quantity)}</TableCell>
+                      <TableCell className="text-right text-zinc-500 text-[10px] font-mono">Limit: {formatNum(alloc.game_limit_applied)}</TableCell>
+                      <TableCell className="text-right text-zinc-400 font-mono">{formatNum(alloc.total_cost, 1)}</TableCell>
+                      <TableCell className="text-right text-[#39FF14] font-bold text-lg font-vt323">+{formatNum(alloc.total_expected_profit, 1)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
              </Table>
           </CardContent>
         </Card>
-      )}
-      
-      {result && result.error && (
-         <div className="p-4 bg-red-900/20 border border-red-900/50 rounded-lg text-red-400 text-sm font-medium animate-in fade-in">
-            {typeof result.error === 'string' ? result.error : JSON.stringify(result.error)}
-         </div>
       )}
     </div>
   );

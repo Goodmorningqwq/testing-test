@@ -113,7 +113,9 @@ async def optimize_portfolio_stream(budget: float, horizon_days: int, candidate_
     for p in net_predictions:
         item = p["item_id"]
         if item in item_vars:
-            qty = int(item_vars[item].varValue)
+            qty = item_vars[item].varValue
+            if qty is None: continue  # PuLP solve failed for this variable
+            qty = int(qty)
             if qty > 0:
                 cost = safe_float(p.get("current_buy_order_price", p["current_price"])) if mode == "flipper" else safe_float(p["current_price"])
                 p_unit = p["net_profit_per_unit"]
@@ -124,6 +126,7 @@ async def optimize_portfolio_stream(budget: float, horizon_days: int, candidate_
                 })
                 total_spent += qty * cost
                 total_profit += qty * p_unit
+    if not allocs: yield {"error": "Solver returned no profitable allocations. Budget may be too small or market depth too thin."}; return
     utilization_pct = (total_spent / budget * 100) if budget > 0 else 0
     yield {"status": "complete", "result": {
         "status": "optimal", "budget_provided": float(budget), "tax_rate": float(tax_rate), "total_spent": float(total_spent),

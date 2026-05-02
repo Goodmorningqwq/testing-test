@@ -46,7 +46,7 @@ export default function Planner() {
           if (line.startsWith("data: ")) {
             const data = JSON.parse(line.substring(6));
             if (data.error) { setError(data.error); setLoading(false); return; }
-            if (data.status === "starting") { setProgress(5); setCurrentAction("Waking up ML models..."); }
+            if (data.status === "starting") { setProgress(data.total === 0 ? 2 : 5); setCurrentAction(data.total === 0 ? "Fetching top items from DB..." : `Waking up ML models (${data.total} items)...`); }
             else if (data.status === "progress") { 
               setProgress(Math.floor((data.current / data.total) * 90) + 5); 
               setCurrentAction(`Analyzing ${data.item_id}... [${data.category}]`);

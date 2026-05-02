@@ -47,8 +47,11 @@ async def get_top_volume_items(limit: int = 15) -> List[str]:
 
 async def optimize_portfolio_stream(budget: float, horizon_days: int, candidate_items: List[str] = None, mode: str = "lazy", tax_rate: float = 0.0125) -> AsyncGenerator[Dict[str, Any], None]:
     budget = safe_float(budget)
+    # Yield immediately so the SSE stream opens and the frontend exits "Initializing Stream..."
+    yield {"status": "starting", "total": 0, "ver": "1.0.7"}
     if not candidate_items: candidate_items = await get_top_volume_items(limit=15)
     if not candidate_items: yield {"error": "No items found."}; return
+    # Now that we know the item count, send an updated starting event
     yield {"status": "starting", "total": len(candidate_items), "ver": "1.0.7"}
     net_predictions = []
     for i, item in enumerate(candidate_items):

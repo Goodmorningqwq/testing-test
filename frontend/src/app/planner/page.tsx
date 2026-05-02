@@ -70,7 +70,7 @@ export default function Planner() {
       <div className="flex flex-col gap-2">
         <div className="flex justify-between items-baseline">
            <h1 className="text-4xl font-vt323 tracking-wide text-[#39FF14]">Portfolio Optimizer</h1>
-           <span className="text-[10px] font-mono text-zinc-600">v1.0.6-STABLE</span>
+           <span className="text-[10px] font-mono text-zinc-600">v1.0.8-ADAPTIVE</span>
         </div>
         <p className="text-zinc-400">Run the PuLP Linear Programming engine to find the exact optimal purchase allocations.</p>
       </div>
@@ -116,9 +116,15 @@ export default function Planner() {
                   </div>
                   <div className="text-right font-vt323 text-[#39FF14] text-xl">{formatNum(result.total_spent)} / {formatNum(result.budget_provided)}</div>
              </div>
-             <div className="mt-4 p-3 bg-zinc-800/50 border border-zinc-700 rounded-lg text-[10px] text-zinc-400 font-mono uppercase tracking-tighter">
-                🛡️ Bazaar Intelligence Active: Order Caps (71k/256/64) and 10% Depth Guard forced.
-             </div>
+              <div className="mt-4 p-3 bg-zinc-800/50 border border-zinc-700 rounded-lg text-[10px] text-zinc-400 font-mono uppercase tracking-tighter space-y-1">
+                 <div>🛡️ Bazaar Intelligence Active: Order Caps (71k/256/64) and 15% Depth Guard forced.</div>
+                 <div className="flex justify-between pt-1">
+                   <span>📊 Candidates Analyzed: <span className="text-zinc-200">{result.candidates_analyzed ?? "?"}</span></span>
+                   <span className={`${(result.budget_utilization_pct ?? 0) < 50 ? 'text-yellow-400' : 'text-[#39FF14]'}`}>
+                     Budget Used: {result.budget_utilization_pct?.toFixed(1) ?? "?"}%
+                   </span>
+                 </div>
+              </div>
           </CardHeader>
           <CardContent>
              <Table>

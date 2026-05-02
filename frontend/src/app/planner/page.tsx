@@ -70,7 +70,7 @@ export default function Planner() {
       <div className="flex flex-col gap-2">
         <div className="flex justify-between items-baseline">
            <h1 className="text-4xl font-vt323 tracking-wide text-[#39FF14]">Portfolio Optimizer</h1>
-           <span className="text-[10px] font-mono text-zinc-600">v1.0.8-ADAPTIVE</span>
+           <span className="text-[10px] font-mono text-zinc-600">v1.0.9-ADAPTIVE</span>
         </div>
         <p className="text-zinc-400">Run the PuLP Linear Programming engine to find the exact optimal purchase allocations.</p>
       </div>

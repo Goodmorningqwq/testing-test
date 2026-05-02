@@ -42,25 +42,76 @@ def safe_float(val: Any) -> float:
 
 def get_candidate_limit(budget: float) -> int:
     """Scale how many candidates to analyze based on budget size."""
-    if budget >= 500_000_000: return 60
-    if budget >= 100_000_000: return 40
-    if budget >= 10_000_000:  return 25
-    return 15
+    if budget >= 1_000_000_000: return 200
+    if budget >= 500_000_000:   return 150
+    if budget >= 100_000_000:   return 100
+    if budget >= 10_000_000:    return 60
+    if budget >= 1_000_000:     return 35
+    return 20
 
-async def get_top_volume_items(limit: int = 15) -> List[str]:
+async def get_candidate_items(limit: int = 20) -> List[str]:
+    """
+    Fetches a blended pool of candidates:
+      - Top 70% by raw trading volume (most liquid, reliable)
+      - Top 30% by price volatility (stddev of sell_price) - catches high-ROI flips
+    Deduplicates and returns up to `limit` items.
+    Window: last 24 hours (wider than before to include more items).
+    """
+    volume_limit = int(limit * 0.70)
+    volatility_limit = limit  # fetch more, then dedup
+
     async with db.pool.acquire() as conn:
-        rows = await conn.fetch("SELECT item_id FROM bazaar_prices WHERE timestamp >= NOW() - INTERVAL '2 hours' GROUP BY item_id ORDER BY SUM(buy_volume + sell_volume) DESC LIMIT $1;", limit)
-    return [row["item_id"] for row in rows]
+        # Pool 1: Top by trading volume
+        vol_rows = await conn.fetch(
+            """
+            SELECT item_id
+            FROM bazaar_prices
+            WHERE timestamp >= NOW() - INTERVAL '24 hours'
+            GROUP BY item_id
+            ORDER BY SUM(buy_volume + sell_volume) DESC
+            LIMIT $1;
+            """,
+            volume_limit
+        )
+        # Pool 2: Top by price volatility (stddev of sell_price)
+        # These items have the most price movement = best flip/ROI opportunities
+        vola_rows = await conn.fetch(
+            """
+            SELECT item_id
+            FROM bazaar_prices
+            WHERE timestamp >= NOW() - INTERVAL '24 hours'
+            GROUP BY item_id
+            HAVING COUNT(*) >= 5
+            ORDER BY STDDEV(sell_price) DESC
+            LIMIT $1;
+            """,
+            volatility_limit
+        )
+
+    # Blend: volume items first (priority), then volatility items (fill remaining slots)
+    seen = set()
+    candidates = []
+    for row in vol_rows:
+        if row["item_id"] not in seen:
+            seen.add(row["item_id"])
+            candidates.append(row["item_id"])
+    for row in vola_rows:
+        if len(candidates) >= limit:
+            break
+        if row["item_id"] not in seen:
+            seen.add(row["item_id"])
+            candidates.append(row["item_id"])
+    return candidates
 
 async def optimize_portfolio_stream(budget: float, horizon_days: int, candidate_items: List[str] = None, mode: str = "lazy", tax_rate: float = 0.0125) -> AsyncGenerator[Dict[str, Any], None]:
     budget = safe_float(budget)
     # Yield immediately so the SSE stream opens and the frontend exits "Initializing Stream..."
     yield {"status": "starting", "total": 0, "ver": "1.0.8"}
     candidate_limit = get_candidate_limit(budget)
-    if not candidate_items: candidate_items = await get_top_volume_items(limit=candidate_limit)
+    if not candidate_items: candidate_items = await get_candidate_items(limit=candidate_limit)
     if not candidate_items: yield {"error": "No items found."}; return
     # Now that we know the item count, send an updated starting event
-    yield {"status": "starting", "total": len(candidate_items), "ver": "1.0.8"}
+    yield {"status": "starting", "total": len(candidate_items), "ver": "1.0.9"}
     net_predictions = []
     for i, item in enumerate(candidate_items):
         yield {"status": "progress", "current": i + 1, "total": len(candidate_items), "item_id": item, "category": get_item_category_label(item)}
